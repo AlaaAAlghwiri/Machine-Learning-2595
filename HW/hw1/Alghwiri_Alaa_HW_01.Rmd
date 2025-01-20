@@ -206,7 +206,7 @@ Let's start by visualizing the relationship between `price` and `color`.
 
 #### SOLUTION
 
-```{r, solution_02b}
+```{r, solution_02b, fig.width= 14, fig.height=8}
 diamonds |>
         ggplot(aes(x= color, y = price)) +
         geom_boxplot()
@@ -222,7 +222,7 @@ Next, we will include the influence of the `cut` variable breaking up the graphi
 
 #### SOLUTION
 
-```{r, solution_02c}
+```{r, solution_02c, fig.width= 14, fig.height=8}
 diamonds |>
         ggplot(aes(x= color, y = price)) +
         geom_boxplot() +
@@ -237,7 +237,7 @@ In addition to the `facet_wrap()` function, we can create subplots with the `fac
 
 #### SOLUTION
 
-```{r, solution_02d}
+```{r, solution_02d, fig.width= 14, fig.height=10}
 diamonds |>
         ggplot(aes(x= color, y = price)) +
         geom_boxplot() +
@@ -254,7 +254,7 @@ The resulting figure in Problem 2d) includes 3 out of the 4 C's. The remaining v
 
 #### SOLUTION
 
-```{r, solution_02e, fig.width= 14, fig.height=10}
+```{r, solution_02e, fig.width= 16, fig.height=10}
 diamonds |>
         ggplot(aes(x= color, y = price)) +
         geom_boxplot(aes(fill = carat > median(carat))) +
@@ -284,9 +284,7 @@ diamonds |>
 
 #### SOLUTION
 
-In part 2b, we were able to identify basic summaries based only on how the price is changing with the different color categories. On the other hand, in 2f,we were able to incorporate information from other variables as well. In one 2-D graph, we were able to incorporate all 4'C's variables. After filtering for `cut == "Ideal"` and `clarity == "IF"`, we can tell that diamonds prices for carat greater than the median vallue are higher than the prices for carat less than the median value. Also,diamonds that their carat above the median value and their color is D or E have the highest prices. color D for both types of carat is the most expensive as well.
-
-we are now able to see how the price is changing with the color variables taking into account the carat variable. And how the carat variable is changing with the color variable. This is a more detailed analysis of the data. Now we can say for the category of ideal cut and IF clarity, the price of those diamonds that their carat is greater than the median carat is higher than the price of those diamonds that their carat is less than the median carat. This obviously completely contradict with my conclusion in 2b when is said that color D and E are the cheapest. This obviously shows the importance of incorporating more variables in one visualization to uncover hidden patterns and ggplot2 is great in this regard.
+In part 2b, we were able to identify basic summaries based only on how the price is changing with the different color categories. On the other hand, in 2f,we were able to incorporate information from other variables as well. In one 2-D graph, we were able to incorporate all 4 C's variables. After filtering for `cut == "Ideal"` and `clarity == "IF"`, we can tell that diamonds prices for carat greater than the median value are higher than the prices for carat less than the median value. Also,diamonds with carat above the median value and their color is D or E have the highest prices. color D for both types of carat is the most expensive as well. This is obviously and completely contradicting my conclusion in 2b when said that color D and E are the cheapest ones!! This obviously shows the importance of incorporating more variables in one visualization to uncover hidden patterns and ggplot2 is great in this regard.
 
 ## Problem 03
 
@@ -488,7 +486,7 @@ We will often need to write complicated mathematical expressions which are easie
 The `&` character is the alignment marker and it tells LaTeX which characters should be matched with each other between lines. In the following example, you can see that all three `=` are preceded by a `&`, which makes them all aligned. The double slash `\\` marks the end of a line. It is not necessary on the last line of an equation block, and can cause some problems in LaTeX compilers.
 
 $$
-\begin{align*} % the star after "align" means that the lines do not receive individual labels
+\begin{align*}% the star after "align" means that the lines do not receive individual labels
 \exp(5a^3) - \frac{3}{4} &= \omega\\
 4 &= 2 + 2\\
 &= \sum_{n=1}^Nn^2
@@ -503,3 +501,11 @@ $$
 4.  *The difference between x cubed and five times z squared is equal to twelve.*
 
 #### SOLUTION
+$$
+\begin{align*}
+x + y &= 2z^2\\
+x^2 + 3y &= 20\\
+27\zeta &= x^2y^3\\
+x^3 - 5z^2 &= 12
+\end{align*}
+$$
