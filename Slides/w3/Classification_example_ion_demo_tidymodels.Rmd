@@ -1,0 +1,2737 @@
+---
+title: "Applied machine learning - tidymodels"
+subtitle: "Binary Classification Demo: Ionosphere data set"
+author: "Dr. Joseph P. Yurko"
+date: "Fall 2021 Semester"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+Let's practice working with binary classification models on a realistic application. We will use the Johns Hopkins Ionosphere data set. Please see the information page from the [UCI machine learning repository](https://archive.ics.uci.edu/ml/datasets/Ionosphere) if you would like to learn more about this data set. The data are also available within the `R` ecosystem via the `mlbench` package. Please download and install the `mlbench` package if you would like to run the examples in this report.  
+
+This example will also use `tidymodels` for training, tuning, testing, and comparing models. Please see the regression report with the concrete data set for more details about working with workflows within `tidymodels`. This report will discuss issues that were not addressed in the regression report. Specifically, this report discusses binary classification performance metrics including **Accuracy**, the **confusion matrix**, the **ROC curve**, and the **calibration curve**. This report also demonstrates using Principal Components Analysis (PCA) as a pre-processing step to manage highly correlated inputs in predictive models.  
+
+The `tidymodels` suite of packages is imported in the code chunk below.  
+
+```{r, load_tidymodels_pkg}
+library(tidymodels)
+
+tidymodels_prefer()
+```
+
+## Data
+
+The Ionosphere data set is loaded in the code chunk below from the `mlbench` package. The dimensions of the data set are printed to the screen to show there are a fairly large number of variables relative to the number of observations in this data set.  
+
+```{r, read_ion_dataset}
+data("Ionosphere", package = "mlbench")
+
+Ionosphere %>% dim()
+```
+
+### Data preparation
+
+The `glimpse()` function is used to show the variable names and data types for each column in the data set. The input feature names all start with a capital letter V and are followed by a number. The response is named `Class`, which as shown below is a factor (`R`'s categorical variable data type).  
+
+```{r, show_ion_glimpse}
+Ionosphere %>% glimpse()
+```
+
+The above print out shows that all inputs are numeric variables **except** the first two, `V1` and `V2`. These two inputs are factors. Let's check the number of unique values for these two variables.  
+
+```{r, check_v1v2_num_unique}
+Ionosphere %>% 
+  select(V1, V2) %>% 
+  purrr::map_dbl(n_distinct)
+```
+
+As shown by the print out above, `V2` has just a single unique value! The variable therefore does not change! We will be modeling the response as a function of the inputs. Since `V2` is constant and never changing, we should not include it in the models. Doing so may cause numerical issues for some models since the value is constant across all observations. Intuitively, a variable with a constant value cannot influence the change in the response. There is no reason to include it in the predictive models.  
+
+Next, let's visualize the counts for `V1` with a bar chart.  
+
+```{r, viz_v1_barchart}
+Ionosphere %>% 
+  ggplot(mapping = aes(x = V1)) +
+  geom_bar() +
+  theme_bw()
+```
+
+As shown in the figure above, the two values of `V1`, 0 and 1 are highly imbalanced. There are over 300 observations with `V1 == 1`. The code chunk below prints the number of observations for each *level* of the `V1` factor and the proportion. The `V1 == 1` level occurs in nearly 90% of the observations.  
+
+```{r, check_v1_counts_prop}
+Ionosphere %>% 
+  count(V1) %>% 
+  mutate(proportion = n / sum(n))
+```
+
+Let's examine how the binary response, `Class`, is associated with the two levels of `V1`. The figure below shows a stacked barchart where the fill denotes the level of `Class`. The `Class == 'good'` level only occurs in the dominant `V1` level. We have zero observations of `Class == 'good'` when `V1` corresponds to its low frequency level, `V1 == 0`.  
+
+```{r, viz_v1_bar_fill_class}
+Ionosphere %>% 
+  ggplot(mapping = aes(x = V1)) +
+  geom_bar(mapping = aes(fill = Class)) +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw()
+```
+
+At first it may seem like `V1` would be an important feature for knowing if `Class` could equal `'good'`. However, because `V1` is imbalanced between the two levels we would need to have a better understanding of this feature. We would need to know why there is an imbalance. Is `V1` an indicator of the data collection system? Is `V1` controlled by the experimenters in some way? Is it expected to be a coincidence that all of the `Class == 'good'` observations occur when `V1 == 1`? Basically because of the imbalance in `V1` and not knowing more about the data collection process, `V1` will be removed from further analysis.  
+
+Next, let's check the levels of the outcome of interest:  
+
+```{r, check_class_levels_a}
+Ionosphere %>% 
+  select(Class) %>% 
+  pull() %>% 
+  levels()
+```
+
+As an aside, we can check the `levels()` using the `$` operator if we prefer. We get the same result either way.  
+
+```{r, check_class_levels_dollar}
+levels(Ionosphere$Class)
+```
+
+
+The first level is `"bad"` and the second level is `"good"`. The traditional convention in `R` for binary classification problems with the `glm()` function is to have the level of interest, the **event**, as the second level of the factor. However, more recent conventions treat the first level of the factor as the event. Thus, the `Class` levels will be reordered manually before we fit any predictive models.  
+
+The changes described above, removing both `V1` and `V2` and reordering the levels of `Class` are performed in the code chunk below. The modified data set is assigned to the `my_ion` object. The `forcats` package is used to reorder the factor. `forcats` is a package within the `tidyverse` dedicated to working with categorical variables. You should already have `forcats` if you installed `tidyverse`.  
+
+```{r, make_my_ion_df}
+my_ion <- Ionosphere %>% 
+  select(-V1, -V2) %>% 
+  mutate(Class = forcats::fct_relevel(Class, "good"))
+```
+
+As a check, the levels of `Class` within `my_ion` are displayed below.  
+
+```{r, check_class_lvels_my_ion}
+my_ion %>% 
+  select(Class) %>% 
+  pull() %>% 
+  levels()
+```
+
+### Data exploration
+
+Let's now explore the data in more detail. Before training binary classifiers, it is always best to check if the response is balanced. This is an important important consideration because it will help provide context for interpreting model performance. A bar chart is used to show the counts of each level of `Class` in the figure below.  
+
+```{r, viz_class_output_barchart}
+my_ion %>% 
+  ggplot(mapping = aes(x = Class)) +
+  geom_bar() +
+  geom_text(stat = 'count',
+            mapping = aes(label = stat(count)),
+            color = 'red',
+            nudge_y = 7,
+            size = 5.5) +
+  theme_bw()
+```
+
+We can also look at the *proportions* instead of the counts. As we see below `Class == 'good'` occurs in roughly two-thirds of the observations. The output levels are therefore not balanced, but the imbalance is not substantial. A good rule of thumb is that if one of the levels of the binary outcome has a proportion of 15% or less, then we need to special techniques dedicated to highly imbalanced data sets. Those techniques are referred to as **subsampling** methods. An introduction to subsampling is available in [Ch. 11 of the caret documentation bookdown](https://topepo.github.io/caret/subsampling-for-class-imbalances.html) if you are interested to learn more.  
+
+We need to remember this number though when we consider model performance later. If a model's Accuracy is about 67% it would not be a good model! It would only be slightly better than random guessing based on the **empirical** proportions!  
+
+```{r, viz_class_output_prop_barchart}
+my_ion %>% 
+  ggplot(mapping = aes(x = Class)) +
+  geom_bar(mapping = aes(y = stat(prop),
+                         group = 1)) +
+  geom_text(stat = 'count',
+            mapping = aes(y = after_stat( count / sum(count) ),
+                          label = after_stat( signif(count / sum(count), 3) )),
+            color = 'red', nudge_y = 0.0275, size = 5.5) +
+  theme_bw()
+```
+
+Now that we know we do not have worry about output class imbalance, let's explore the inputs. We have a lot of inputs to this problem compared to the regression demo's concrete data set. Let's start with histograms to represent the distribution of the inputs. Default figure sizes are used throughout this report, and so some of the figures will be a little difficult to see. That said, the figure below shows that all inputs appear to be bound between -1 and +1. There appears to be two types of distributions for the inputs. Those that are roughly symmetric with a mode located at 0, and those that are left-skewed with a tail in negative values away from the higher density positive values. All inputs appear to have spikes near -1, 0, and +1.  
+
+```{r, viz_inputs_hist_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 27) +
+  facet_wrap(~ input_id, scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        strip.text = element_text(size = 6.5))
+```
+
+
+If we would read some of the background material on this data set, the inputs are features extracted from signal processing algorithms. All inputs have been scaled to be between -1 and +1. Let's summarize the distributions with boxplots to compare the summary statistics across inputs.  
+
+```{r, viz_inputs_box_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_boxplot(mapping = aes(group = input_id)) +
+  theme_bw()
+```
+
+The figure above reveals that the inputs appear to alternate between distributions concentrated around positive values and those concentrated around zero. The histogram facets showed the same thing, but it might be easier to draw that conclusion from the boxplot figure above.  
+
+Let's now *condition* or group the input distributions by the `Class` level. The boxplots below therefore help us get a sense of if the input distribution is different for the `'good'` vs `'bad'` signal. Such a visualization can help us see if there are clear separations between the groups. The *dispersion* as represented by the Inter Quartile Range (IQR visualized as the length of the box in the figure) appears to be different between the `Class` levels for the skewed inputs.  
+
+```{r, viz_inputs_box_all_class}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_boxplot(mapping = aes(group = interaction(input_id, Class),
+                             fill = Class,
+                             color = Class),
+               alpha = 0.25) +
+  ggthemes::scale_color_colorblind() +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Next, let's include the average input value conditioned on the `Class` level. This let's us examine if the average input is different between the levels of `Class`. Such differences of averages can be strong indicators that an input has an effect of the binary outcome.  
+
+```{r, viz_inputs_box_meanse_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_boxplot(mapping = aes(group = interaction(input_id, Class),
+                             fill = Class,
+                             color = Class),
+               alpha = 0.1) +
+  stat_summary(fun.data = 'mean_se',
+               fun.args = list(mult = 2),
+               mapping = aes(group = interaction(input_id, Class),
+                             color = Class),
+               position = position_dodge(0.75)) +
+  ggthemes::scale_color_colorblind() +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+The above figure uses boxplots to compare distributions and compares the averages with confidence intervals across groups. It is a useful figure for getting a sense of the influence of each input's *marginal* influence on the binary outcome. However, it's a busy and complicated figure. Let's focus just on the average input value per `Class` level. The more streamlined figure below makes it easier to see the **separation** between confidence intervals on the group averages per input. For example, inputs 3, 5, 7, and 9 have mean values that are clearly different based on the value of `Class`.  
+
+```{r, viz_inputs_meanse_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = as.factor(input_id), y = value)) +
+  stat_summary(fun.data = 'mean_se',
+               fun.args = list(mult = 2),
+               mapping = aes(group = interaction(input_id, Class),
+                             color = Class)) +
+  ggthemes::scale_color_colorblind() +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Boxplots are important graphical tools for summarizing a distribution. However, they do not tell us anything about the *shape* of the distribution. We do not know if a distribution is uniformly spread, concentrated in the center, or multi-modal. Thus, it always important use other visualizations in addition to the boxplot as a further check on the distributional behavior. We have already seen via histograms that the input distributions are not Gaussian. Let's look at the distributional shapes again with violin plots.  
+
+```{r, viz_inputs_violins_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_violin(mapping = aes(group = input_id), fill = 'grey') +
+  theme_bw()
+```
+
+The violin shape is difficult to see in the above figure, so let's break up the inputs with facets. The facets simply correspond to the input integer numbers and do not reflect any other grouping. This is used to make it easier to see the shape of the distribution per input. As we saw with the histograms previously, we see some inputs are skewed while others are roughly symmetric around zero.  
+
+```{r, viz_inputs_violins_all_facets}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_violin(mapping = aes(group = input_id),
+              fill = 'grey') +
+  facet_wrap(~input_bin, scales = "free_x") +
+  theme_bw() +
+  theme(strip.text = element_blank())
+```
+
+Next, let's condition each input on the `Class` level. The figure below reveals the differences in the distributional shape for inputs 3, 5, 7, and 9 similar to what we saw previously with the boxplots.  
+
+```{r, viz_inputs_violins_all_facets_class}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_violin(mapping = aes(group = interaction(input_id, Class),
+                            fill = Class),
+              alpha = 0.55) +
+  facet_wrap(~input_bin, scales = "free_x") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(strip.text = element_blank(),
+        legend.position = "top")
+```
+
+The figure below focuses just on the first 10 inputs so we can better see the differences in the distributions.  
+
+```{r, viz_inputs_violins_10_facets_class}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  filter(input_id < 11) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_violin(mapping = aes(group = interaction(input_id, Class),
+                            fill = Class),
+              alpha = 0.55) +
+  facet_wrap(~input_bin, scales = "free_x") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(strip.text = element_blank(),
+        legend.position = "top")
+```
+
+If you like the violine style of visualization, an alternative formulation is the *joyplot* or *ridges plot*. The ridge plot is created in `ggplot2` using the `ggridges` packages. Please download and install `ggridges` if you would like to create the figures in the next few code chunks. The `ggridges` package is loaded in the code chunk below.  
+
+```{r, load_ggridges_pkg}
+library(ggridges)
+```
+
+
+The ridge plot for the input distributions is created below. The inputs are grouped within facets to make it easier to see each distribution. The ridges plot uses a kernel density estimate to represent the distribution like a violin plot. The ridges plot shows the distributions horizontally instead of vertically and only shows "half" of the violin. The resulting figure resembles a mountain range with the modes of the distributions forming "ridges" along the range (hence why the ridges plot gets it's name).  
+
+```{r, viz_inputs_ridges_all}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  ggplot(mapping = aes(x = value, y = as.factor(input_id))) +
+  geom_density_ridges() +
+  facet_wrap(~input_bin, scales = "free_y") +
+  theme_bw() +
+  theme(strip.text = element_blank())
+```
+
+We can group the ridges plot on the level of `Class` to again compare the input distributions conditioned on the `Class` level.  
+
+```{r, viz_inputs_ridges_all_class}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  ggplot(mapping = aes(x = value, y = as.factor(input_id))) +
+  geom_density_ridges(mapping = aes(fill = Class),
+                      alpha = 0.5) +
+  facet_wrap(~input_bin, scales = "free_y") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(strip.text = element_blank())
+```
+
+If we focus on the first 10 inputs, we again see the same behavior discussed previously. The lower number odd inputs have skewed distributions when `Class == 'good'` and more symmetric distributions when `Class == 'bad'`.  
+
+```{r, viz_inputs_ridges_10_class}
+my_ion %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.integer( stringr::str_extract(name, "\\d+") )) %>% 
+  mutate(input_bin = cut(input_id,
+                         breaks = quantile(input_id),
+                         include.lowest = TRUE)) %>% 
+  filter(input_id < 11) %>% 
+  ggplot(mapping = aes(x = value, y = as.factor(input_id))) +
+  geom_density_ridges(mapping = aes(fill = Class),
+                      alpha = 0.5) +
+  facet_wrap(~input_bin, scales = "free_y") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(strip.text = element_blank())
+```
+
+Let's now consider how the inputs related to each other, starting with a scatter plot between inputs 3 and 5. We previously saw that both inputs 3 and 5 have marginal distributions concentrated in the positive interval. We are seeing the same thing displayed below. The scatter plot suggests that when `V3` is positive `V5` is also positive.  
+
+```{r, viz_input_scatter_3_5}
+my_ion %>% 
+  ggplot(mapping = aes(x = V3, y = V5)) +
+  geom_point(alpha = 0.25, size = 3) +
+  coord_equal() +
+  theme_bw()
+```
+
+Next, let's color the markers by `Class`. Again we see that `Class == 'good'` corresponds to positive values for both inputs.  
+
+```{r, viz_input_scatter_3_5_class}
+my_ion %>% 
+  ggplot(mapping = aes(x = V3, y = V5)) +
+  geom_point(alpha = 0.25, size = 3,
+             mapping = aes(color = Class)) +
+  coord_equal() +
+  ggthemes::scale_color_colorblind() +
+  theme_bw() +
+  guides(color = guide_legend(override.aes = list(alpha = 1.0)))
+```
+
+We could continue looking at scatter plots, however because we have so many inputs in this application, let's jump straight to the correlation plot. This way we can look at the correlation coefficient for all pairs of inputs together. The code chunk below uses `corrplot` to create the correlation plot.  
+
+```{r, viz_inputs_corrplot}
+my_ion %>% 
+  select(-Class) %>% 
+  cor() %>% 
+  corrplot::corrplot(method = 'square', type = 'upper')
+```
+
+The correlation plot above reveals an alternating pattern of high correlation, no correlation, and anti-correlation. We can use `corrplot` to rearrange the variables and group correlated variables together to better reveals the grouping structure within the data. `corrplot` can do this several way, but the code chunk below uses **hierarchical clustering** with the **Ward linkage function** to *cluster* correlated inputs together. We will discuss how hierarchical clustering works and other unsupervised learning techniques at the end of the semester.  
+
+```{r, viz_inputs_corrplot_ward}
+my_ion %>% 
+  select(-Class) %>% 
+  cor() %>% 
+  corrplot::corrplot(method = 'square', type = 'upper',
+                     order = 'hclust', hclust.method = 'ward.D2')
+```
+
+Next, let's check if the correlation structure is different between the levels of `Class`. The code chunk below creates the grouped correlation plot using a mixture of `tidyr`, `dplyr`, `corrr`, `purrr`, and `ggplot2`. The `corrr` package is part of `tidymodels`, but you may need to download and install it separately if you want to create the figure in the code chunk below. The correlation plot below uses the original input number ordering. We see that when `Class == 'good'` the alternating pattern is even "stronger" than when we consider the entire data set. However, the correlation structure appears different when `Class == 'bad'`. The inputs do not appear to be as strongly correlated or anti-correlated when we observe `Class == 'bad'`.  
+
+```{r, viz_inputs_corrr_group}
+my_ion %>% 
+  group_by(Class) %>% 
+  tidyr::nest() %>% 
+  mutate(cor_wf = map(data, corrr::correlate, quiet = TRUE, diagonal = 1),
+         cor_lf = map(cor_wf, corrr::stretch)) %>% 
+  select(Class, cor_lf) %>% 
+  tidyr::unnest(cor_lf) %>% 
+  ungroup() %>% 
+  mutate(x_id = stringr::str_extract(x, '\\d+'),
+         y_id = stringr::str_extract(y, '\\d+')) %>% 
+  mutate(x_id = as.integer(x_id),
+         y_id = as.integer(y_id)) %>% 
+  ggplot(mapping = aes(x = as.factor(x_id), y = as.factor(y_id))) +
+  geom_tile(mapping = aes(fill = r), color = 'white') +
+  coord_equal() +
+  facet_wrap(~Class, labeller = "label_both") +
+  scale_fill_gradient2('corr',
+                       low = 'red', mid='white', high='blue',
+                       midpoint = 0,
+                       limits = c(-1, 1)) +
+  labs(x='', y = '') +
+  theme_bw() +
+  theme(legend.position = "top",
+        axis.text = element_text(size = 5.5))
+```
+
+Let's remake the above figure but this time with a discretized color scale for the absolute correlation coefficient. We are therefore focusing on the magnitude of the correlation to highlight the reduction in correlation when `Class == 'bad'` compared to `Class == 'good'`.  
+
+```{r, viz_inputs_corrplot_group_abs}
+my_ion %>% 
+  group_by(Class) %>% 
+  tidyr::nest() %>% 
+  mutate(cor_wf = map(data, corrr::correlate, quiet = TRUE, diagonal = 1),
+         cor_lf = map(cor_wf, corrr::stretch)) %>% 
+  select(Class, cor_lf) %>% 
+  tidyr::unnest(cor_lf) %>% 
+  ungroup() %>% 
+  mutate(x_id = stringr::str_extract(x, '\\d+'),
+         y_id = stringr::str_extract(y, '\\d+')) %>% 
+  mutate(x_id = as.integer(x_id),
+         y_id = as.integer(y_id)) %>% 
+  mutate(r_bin = cut(abs(r),
+                     breaks = seq(0, 1, by = 0.2),
+                     include.lowest = TRUE)) %>% 
+  ggplot(mapping = aes(x = as.factor(x_id), y = as.factor(y_id))) +
+  geom_tile(mapping = aes(fill = r_bin), 
+            color = 'white') +
+  coord_equal() +
+  facet_wrap(~Class, labeller = "label_both") +
+  scale_fill_viridis_d("abs(corr)") +
+  labs(x='', y = '') +
+  theme_bw() +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(size = 5.5))
+```
+
+It can be challenging to continue investigating relationships between the inputs because we have such a large number of inputs in this problem. Thus, we will use Principal Components Analysis (PCA) to reduce the dimensionality to a smaller number of effective variables. The transformed variables, the Principal Components (PCs) and their observations, the **PC scores**, account for all variables but let us focus on the dominant most prevelant variation in the inputs. We will discuss how PCA works, how to interpret the results, and how the variables are calculated at the end of the semester. For now, we will PCA to help explore this high dimensional problem further.  
+
+PCA is applied to just the inputs for this problem in the code chunk below.  
+
+```{r, run_ion_pca}
+ion_pca <- prcomp(my_ion %>% select(-Class), scale. = TRUE)
+```
+
+The PCA results are examined and visualized with the help of the `factoextra` package. The [`factoextra` documentation](https://github.com/kassambara/factoextra) is quite good and provides a good starting point for learning more about working with high dimensional data. We will use `factoextra` at the end of the semester when we work with PCA. The `factoextra` package is loaded in the code chunk below.  
+
+```{r, load_factoextra_pkg}
+library(factoextra)
+```
+
+The scree plot gives us an idea about the number of PCs to retain. We are looking for a knee or elbow bend in the plot to identify the point of "diminishing returns". The scree plot suggests between 5 to 7 PCs should be retained.  
+
+```{r, viz_ion_screeplot}
+factoextra::fviz_screeplot(ion_pca, addlabels = TRUE, ncp=20)
+```
+
+Next, let's include the total or cumulative variance explained with the scree plot and the eigenvalues. The total variance explained reveals we need 20 PCs to capture 95% of the total variance. However, the eigenvalues and scree plot (variance explained per PC) show that many PCs may not be necessary.  
+
+```{r, viz_ion_scree_total}
+factoextra::get_eigenvalue( ion_pca ) %>% 
+  tibble::rownames_to_column() %>% 
+  tibble::as_tibble() %>% 
+  mutate(pc_id = as.numeric(stringr::str_extract(rowname, "\\d+"))) %>% 
+  pivot_longer(!c("rowname", "pc_id")) %>% 
+  ggplot(mapping = aes(x = pc_id, y = value)) +
+  geom_line(mapping = aes(group = name),
+            size = 1.1) +
+  geom_point(size = 3) +
+  geom_hline(data = tibble::tibble(threshold_value = c(c(50, 80, 95),
+                                                       1),
+                                   name = c(rep("cumulative.variance.percent", 3), 
+                                            "eigenvalue")),
+             mapping = aes(yintercept = threshold_value),
+             color = 'red', linetype = 'dashed', size = 1.) +
+  facet_wrap(~name, scales = "free_y", ncol = 1) +
+  theme_bw()
+```
+
+Based on the above plots, let's focus on the first 9 PCs. The figure below shows the histograms for the first 9 PCs.  
+
+```{r, viz_ion_pc_hist}
+ion_pca$x %>% tibble::as_tibble() %>% 
+  select(1:9) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid")) %>% 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 27) +
+  facet_wrap(~name, scales = "free_y") +
+  theme_bw()
+```
+
+Let's summarize the PC score distributions with boxplots and represent their shapes with violins on the same figure.  
+
+```{r, viz_ion_pc_box_violin}
+ion_pca$x %>% tibble::as_tibble() %>% 
+  select(1:9) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid")) %>% 
+  ggplot(mapping = aes(x = name, y = value)) +
+  geom_violin(fill = 'grey') +
+  geom_boxplot(fill = NA, size = 1.) +
+  theme_bw()
+```
+
+The previous figures show the PC score variability appears to decrease as the PC number increases. We will learn just why that is at the end of the semester.  
+
+Next, let's consider how the PC distributions change conditioned on the level of `Class`. The figure below compares the conditional distributioins with boxplots and the mean value for the first 9 PCs. Although PC1 shows separation in the mean across the levels of `Class`, PC3 also has separation of the boxes! This means 50% of the observations of the scores of PC3 do not overlap across the levels of `Class`. PC5 and higher do not have a difference in the mean values across groups, but the `Class == 'good'` boxes are narrower than their `Class == 'bad'` counterparts.  
+
+```{r, viz_ion_pc}
+ion_pca$x %>% tibble::as_tibble() %>% 
+  select(1:9) %>% 
+  bind_cols(my_ion %>% select(Class)) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  ggplot(mapping = aes(x = name, y = value)) +
+  geom_boxplot(mapping = aes(group = interaction(name, Class),
+                             fill = Class,
+                             color = Class),
+               alpha = 0.1) +
+  stat_summary(fun.data = 'mean_se',
+               fun.args = list(mult = 2),
+               mapping = aes(group = interaction(name, Class),
+                             color = Class),
+               position = position_dodge(0.75)) +
+  ggthemes::scale_color_colorblind() +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Next, let's look at the relationship between the PCs. You will learn why at the end of the semester the PC scores are uncorrelated, as shown below.  
+
+```{r, viz_pc_score_corrplot}
+ion_pca$x %>% tibble::as_tibble() %>% 
+  cor() %>% 
+  corrplot::corrplot(type = 'upper', method = 'square')
+```
+
+However, that does not necessarily mean there are no patterns between PCs. Let's start with a scatter plot between PC1 and PC2.  
+
+```{r, viz_pc_scatter_1_2}
+ion_pca$x %>% as.data.frame() %>% tibble::as_tibble() %>% 
+  ggplot(mapping = aes(x = PC1, y = PC2)) +
+  geom_point(size = 3) +
+  theme_bw()
+```
+
+Then let's color each marker by the level of `Class`.  
+
+```{r, viz_pc_scatter_1_2_class}
+ion_pca$x %>% as.data.frame() %>% tibble::as_tibble() %>% 
+  bind_cols(my_ion %>% select(Class)) %>% 
+  ggplot(mapping = aes(x = PC1, y = PC2)) +
+  geom_point(size = 3,
+             mapping = aes(color = Class)) +
+  ggthemes::scale_color_colorblind() +
+  theme_bw()
+```
+
+The boxplots seemed to suggest PC3 is important, so let's consider the relationship between PC1 and PC3 colored by `Class`. As shown below. there seems to be some combinations of PC1 and PC3 that yield separatioin between the two levels of `Class`.  
+
+```{r, viz_pc_scatter_1_3_class}
+ion_pca$x %>% as.data.frame() %>% tibble::as_tibble() %>% 
+  bind_cols(my_ion %>% select(Class)) %>% 
+  ggplot(mapping = aes(x = PC1, y = PC3)) +
+  geom_point(size = 3,
+             mapping = aes(color = Class)) +
+  ggthemes::scale_color_colorblind() +
+  theme_bw()
+```
+
+Let's use a pairsplot to examine all pairwise scatter plots between the first 7 PCs. The first 7 PCs are used because of the eigenvalue criterion, which will be discussed in detail at the end of the semester.  
+
+```{r, viz_pc_pairsplot}
+ion_pca$x %>% as.data.frame() %>% tibble::as_tibble() %>% 
+  bind_cols(my_ion %>% select(Class)) %>% 
+  GGally::ggpairs(columns = 1:7,
+                  mapping = aes(color = Class),
+                  progress = FALSE) +
+  theme_bw()
+```
+
+The scatter plot between PC6 and PC7 is rather interesting. It appears that `Class == 'good'` is concentrated around the origin of the plot. Let's confirm by focusing on that scatter plot below. This scatter plot is consistent with the boxplot comparison we visualized previously.  
+
+```{r, viz_pc_scatter_6_7_class}
+ion_pca$x %>% as.data.frame() %>% tibble::as_tibble() %>% 
+  bind_cols(my_ion %>% select(Class)) %>% 
+  ggplot(mapping = aes(x = PC6, y = PC7)) +
+  geom_point(size = 3,
+             mapping = aes(color = Class)) +
+  ggthemes::scale_color_colorblind() +
+  theme_bw()
+```
+
+The PCs are **linear combinations** of the original variables. Although all of the original variables contribute to the PCs, some variables contribute more than others. When working with PCA it is always important to consider which of the original variables contribute to or are most associated with each PC. We will learn how the linear combinations work later in the semester. For now, let's use a bar chart to examine which input contributes the most to PC1.  
+
+```{r, viz_pc1_contrib_bar}
+factoextra::fviz_contrib( ion_pca, choice='var', axes=1 )
+```
+
+The higher the bar in the figure above, the more that input contributes to PC1. The dashed red horizontal line corresponds to equal or uniform contribution. If all inputs equally contributed to the PC all bars would have equal height at the height indicated by the red line. The uniform contribution threshold is a useful benchmark for identifying "active" vs "in-active" variables for each PC. This concept is used to binarize the contribution to being above (active) vs below (in-active) the uniform contribution in the figure below with a heat map. The x-axis is the PC number and the y-axis is the input ID. A red tile indicates the input actively contributes to the PC. I like to use heat maps like this to quickly identify which of the original variables are associated with the PCs. Notice that inputs 3 through 8 actively contribute to PC3, as shown by the red tiles in the figure below.  
+
+```{r, viz_pc_contrib_heatmap}
+(factoextra::get_pca(ion_pca))$contrib %>% as.data.frame() %>% 
+  tibble::rownames_to_column() %>% 
+  tibble::as_tibble() %>% 
+  pivot_longer(!c("rowname")) %>% 
+  mutate(pc_id = as.numeric(stringr::str_extract(name, "\\d+"))) %>% 
+  mutate(input_id = as.numeric(stringr::str_extract(rowname, '\\d+'))) %>% 
+  ggplot(mapping = aes(x = as.factor(pc_id), y = as.factor(input_id))) +
+  geom_tile(mapping = aes(fill = value > 100 * (1 / length(ion_pca$center)),
+                          group = interaction(pc_id, input_id)),
+            color = 'black') +
+  scale_fill_manual("Variable actively contributes to PC?",
+                    values = c("TRUE" = "darkred",
+                               "FALSE" = "grey70")) +
+  labs(y = 'input ID', x = 'PC') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+#### Data exploration conclusions
+
+Exploring the data is an important step in any predictive modeling task. We gain import context of the variables, namely their distributions and relationships. We have seen that there is a correlation pattern between the inputs when the `Class == 'good'`. That correlation pattern is not present when `Class == 'bad'`. We have also visually identified that low numbered inputs appear to influence the binary outcome. We cannot say for certain if such an assotiation is true, but we will use predictive models to confirm what we have found so far!  
+
+## Predictive modeling
+
+Let's now setup the object to support training and assessing performance of predictive models. We will use 5-fold cross-validation with 3-repeats in this application. We will use 3 repeats instead of 5 just to save on computational time. It is critical to use stratified cross-validation because we are working with a binary classification problem. Stratification helps ensure each training/test split has roughly consistent proportions of the levels of `Class`.  
+
+```{r, setup_cv_folds}
+set.seed(2021)
+cv_folds <- vfold_cv(my_ion, v = 5, repeats = 3, strata = Class)
+
+cv_folds
+```
+
+Next, let's define the performance metrics that we will focus on. We will use Accuracy, the Area Under the ROC curve (ROC AUC), and the mean log-loss.  
+
+```{r, setup_metrics_to_use}
+my_metrics <- metric_set(accuracy, roc_auc, mn_log_loss)
+```
+
+
+### Linear methods
+
+Just as with regression problems, we should train multiple models at various levels of complexity. We will start simple with **generalized linear models** and slowly add complexity to the problem.  
+
+#### Linear additive relationships
+
+We will start with logistic regression as our initial and simple binary classification model. The `tidymodels` model specification for logistic regression is created below.  
+
+```{r, make_glm_spec}
+glm_spec <- logistic_reg() %>% 
+  set_engine("glm")
+```
+
+Even though the inputs are all between -1 and +1, we will still standardize the inputs before fitting the models. Standardizing will make sure all variables have mean 0 and unit variance. The `tidymodels` framework recipe object which standardizes all input features is created below.  
+
+```{r, make_stan_prepro_recipe}
+bp_stan <- recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+```
+
+To double check, the boxplots for the preprocessed standardized inputs are shown below.  
+
+```{r, check_stan_inputs_box}
+bp_stan %>% 
+  prep(training = my_ion, retain = TRUE) %>% 
+  bake(new_data = NULL) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(!c("rowid", "Class")) %>% 
+  mutate(input_id = as.numeric(stringr::str_extract(name, '\\d+'))) %>% 
+  ggplot(mapping = aes(x = input_id, y = value)) +
+  geom_boxplot(mapping = aes(group = input_id)) +
+  theme_bw()
+```
+
+The logistic regression model with standardized linear additive features workflow is created below.  
+
+```{r, make_glm_wflow}
+glm_add_wflow <- workflow() %>% 
+  add_model(glm_spec) %>% 
+  add_recipe(bp_stan)
+```
+
+The model is trained and assessed with the repeated cross-validation. It is important to note that the `control` argument is used to force all test set predictions to be saved. This will allow us to visualize important binary classification performance metrics later on.  
+
+```{r, train_assess_glm_add}
+glm_add_res <- glm_add_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+As shown by the output above, there are warning messages associated with each resample! Just what those warning messages mean and represent we will learn about when we discuss logistic regression in detail. If you want to check what the warnings are after training, you can look within the `notes` field of the returned `tidymodels` object.  
+
+```{r, check_notes_for_one}
+glm_add_res$.notes[[1]]
+```
+
+This warning is important, and again we will learn about it in greater detail later. For now, let's just focus on the model performance results. The `collect_metrics()` function provides the summarized performance metrics across all resamples.  
+
+```{r, show_glm_add_metric_summary}
+glm_add_res %>% collect_metrics()
+```
+
+The simple model has an **Accuracy** of about 83% averaged over the resamples. This is better than the **empirical** event proportion of about 64%, so the model appears better than random guessing! Accuracy is useful, but it does not tell us anything about the errors. We do not know if a miss-classification is a False-Positive or a False-Negative. The **confusion matrix** allows us to see how the model is correct and how it is incorrect. We can use either `conf_mat()` function to get the total counts in the confusion matrix. The result of `conf_mat()` is shown in the code chunk below, is not correct to use here. It is intended if we were calculating the results directly from predictions on a test set.  
+
+```{r, viz_conf_mat_glm_add}
+glm_add_res %>% collect_predictions() %>% 
+  conf_mat(truth = Class, estimate = .pred_class)
+```
+
+The `conf_mat_resampled()` function to average the confusion matrix across cross-validation folds. Notice the values are different between the two.  
+
+```{r, viz_conf_mat_glm_add_cv}
+glm_add_res %>% conf_mat_resampled(tidy = FALSE)
+```
+
+However, the `conf_mat_resampled()` function messes up the averaging when we use repeated cross-validation. Hopefully this mistake is corrected in future versions. For now, we need to create the averaged confusion matrices across all repeats and cross-validation folds. The code chunk below shows how to do that. The counts displayed within each cell of the confusion matrix are now consistent with the test set sizes per fold.  
+
+```{r, viz_conf_mat_correct_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_nest(id, id2) %>% 
+  mutate(conf_mats = map(data, 
+                         ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+  pluck("conf_mats") %>% 
+  map_dfr( ~ as.data.frame(.x$table)) %>% 
+  group_by(Prediction, Truth) %>% 
+  summarise(Freq = mean(Freq, na.rm = TRUE),
+            .groups = 'drop') %>% 
+  mutate(Prediction = forcats::fct_rev(Prediction)) %>% 
+  ggplot(mapping = aes(x = Truth, y = Prediction)) +
+  geom_tile(mapping = aes(fill = Freq),
+            color = 'black') +
+  geom_text(mapping = aes(label = round(Freq,2)),
+            color = 'white', size = 7.5) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+In addition to averaging over all resamples, we can average over the folds within each repeat. This helps us check for consistency in the behavior.  
+
+```{r, viz_conf_mat_per_repeat_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_nest(id, id2) %>% 
+  mutate(conf_mats = map(data, 
+                         ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+  mutate(conf_table = map(conf_mats, ~as.data.frame(.x$table))) %>% 
+  select(id, id2, conf_table) %>% 
+  tidyr::unnest(conf_table) %>% 
+  group_by(id, Prediction, Truth) %>% 
+  summarise(Freq = mean(Freq, na.rm = TRUE),
+            .groups = 'drop') %>% 
+  mutate(Prediction = forcats::fct_rev(Prediction)) %>% 
+  ggplot(mapping = aes(x = Truth, y = Prediction)) +
+  geom_tile(mapping = aes(fill = Freq),
+            color = 'black') +
+  geom_text(mapping = aes(label = round(Freq,2)),
+            color = 'white', size = 7.5) +
+  facet_wrap(~id) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+With `Class == 'good'` as the first level, the True-Positive corresponds to `Prediction == 'good'` and `Truth == 'good'` in the confusion matrix above. Thus, True-Negative corresponds to `Prediction == 'bad'` and `Truth == 'bad'`.  
+
+The confusion matrix gives us the performance for a single **threshold** value - the probability value that decides how classifications are made from the model predictive event probability. That single threshold used to create the above confusion matrices is the default value of 0.5. We can consider how the performance changes across many threshold values with the **ROC curve**. The ROC curve shows how the True Positive Rate (TPR) and False Positive Rate (FPR) change together as the threshold value changes. The ROC curve is straight forward to create within `tidymodels` using the `autoplot()` method.  
+
+```{r, viz_roc_default_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+```
+
+The ROC curve shown above has been averaged across all resample folds. This is the default behavior of the `autoplot()` method. We can visualize the individual resample test-set ROC curve by grouping the predictions, as shown below. Looking at the individual resample fold ROC curves helps us get an idea about the variability in the performance.  
+
+```{r, viz_roc_curve_resample_fold_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_by(id, id2) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+```
+
+Because we performed repeated cross-validation, we could also consider the ROC curve averaged over the folds per repeat. This figure lets us examine the variability in the average ROC curve for a model.  
+
+```{r, viz_rroc_curve_repeat_avg_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_by(id) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+```
+
+If we wanted, we can build up the layers of the ROC curve manually by using `ggplot2` geoms directly instead of `autoplot()` (the `autoplot()` method is a `ggplot2` function). This can be useful if we want to study the overall averaged ROC curve with the per repeat ROC curves.  
+
+```{r, viz_roc_curve_repeat_behave_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_by(id) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  ggplot(mapping = aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path(mapping = aes(color = id)) +
+  geom_path(data = glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+              roc_curve(Class, .pred_good),
+            color = 'black') +
+  geom_abline(slope = 1, intercept = 0, linetype = 'dotted') +
+  coord_equal() +
+  theme_bw()
+```
+
+We could even include the variability within each repeat, the repeat averaged ROC curve, and the overall or "grand" averaged ROC curve. Such a figure is rather complex, but this can help us get an idea about the variability of the ROC curve, while still examining its average trend.  
+
+```{r, viz_roc_curve_complex_glm_add}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_by(id, id2) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  ggplot(mapping = aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path(mapping = aes(color = id,
+                          group = interaction(id, id2)),
+            size = 1, alpha = 0.5, linetype = 'dashed') +
+  geom_path(data = glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+              group_by(id) %>% 
+              roc_curve(Class, .pred_good),
+            mapping = aes(color = id),
+            size = 1.8) +
+  geom_path(data = glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+              roc_curve(Class, .pred_good),
+            color = 'black', size = 2) +
+  geom_abline(slope = 1, intercept = 0, linetype = 'dotted') +
+  coord_equal() +
+  theme_bw()
+```
+
+#### Penalized Regression - Elastic Net
+
+The regression demo for predicting concrete demonstrated linear methods with many other derived features including interaction and polynomial terms. However, we will not do that here. We simply do not have enough observations to support such models! As a check, the code chunk below shows that there are 529 features associated with a model with all pair-wise interactions! That's more features than we have observations!    
+
+```{r, check_number_all_pair_int}
+model.matrix(Class ~ (.)^2, my_ion) %>% dim()
+```
+
+Thus, we will use penalized regression with Elastic Net to turn off unimportant inputs in the linear additive formulation. However, before tuning Elastic Net we will first fit Lasso to get an idea about its behavior. The lasso model specification for `glmnet` is created below.  
+
+```{r, make_lasso_mod_spec}
+lasso_for_fit <- logistic_reg(penalty = 0.1, mixture = 1) %>% 
+  set_engine("glmnet",
+             intercept = TRUE, standardize = TRUE)
+```
+
+
+The lasso workflow is created and the model is fit below.  
+
+```{r, fit_one_lasso_model}
+lasso_only_wflow <- workflow() %>% 
+  add_model(lasso_for_fit) %>% 
+  add_recipe(bp_stan)
+
+lasso_only_fit <- lasso_only_wflow %>% 
+  fit(my_ion)
+```
+
+Just as with regression problems, Lasso models with `glmnet` try out a large number of the regularization strength tuning parameter, `lambda`.  
+
+```{r, viz_lasso_lambda_one_fit}
+lasso_only_fit %>% extract_fit_parsnip() %>% 
+  pluck('fit') %>% 
+  plot(xvar = 'lambda')
+```
+
+I like to use this first fit to help set the bounds on `lambda` for tuning. This way the `glmnet` package helps set meangingful bounds on the parameter.  
+
+```{r, check_bounds_glmnet_lambda}
+lasso_only_fit %>% extract_fit_parsnip() %>% 
+  pluck('fit') %>% 
+  broom:::tidy.glmnet() %>% 
+  distinct(lambda) %>% 
+  arrange(lambda) %>% 
+  pull() %>% 
+  log() %>% 
+  summary()
+```
+
+Expand the bounds on `lambda` to lower penalty strength values (more negative log-lambda values) and fit the model again. We will learn why the curves in the coefficient path figure appear to "level off" on the left side of the figure below later in the semester.  
+
+```{r, check_new_bounds_lambda_viz}
+lasso_for_fit_b <- logistic_reg(penalty = 0.1, mixture = 1) %>% 
+  set_engine("glmnet",
+             intercept = TRUE, standardize = TRUE,
+             path_values = exp(seq(-11, -1, length.out = 75)))
+
+lasso_only_fit_b <- workflow() %>% 
+  add_model(lasso_for_fit_b) %>% 
+  add_recipe(bp_stan) %>% 
+  fit(my_ion)
+
+lasso_only_fit_b %>% extract_fit_parsnip() %>% 
+  pluck('fit') %>% 
+  plot(xvar = 'lambda')
+```
+
+It is important to note the above figure is not used to pick a penalty value. The above figure is created by fitting the model to the entire training set. I am using the above figure to help set meaningful bounds on the tuning parameter. The "best" value for `lambda` will be decided by tuning with resampling. The complete Elastic Net model which blends Lasso and Ridge penalties has an additional tuning parameter, the mixing fraction. The complete Elastic Net tuning grid is created in the code chunk below.  
+
+```{r, make_enet_tune_grid}
+my_lambda <- penalty(range = c(-11, -1), trans = log_trans())
+
+my_alpha <- mixture(range = c(0.1, 1.0))
+
+enet_grid <- grid_regular(my_lambda, my_alpha, 
+                          levels = c(penalty = 75, mixture = 5))
+```
+
+The `glmnet` Elastic Net model specification and the workflow with the standardized inputs is defined in the code chunk below.  
+
+```{r, make_enet_mod_spec}
+enet_spec <- logistic_reg(penalty = tune(), mixture = tune()) %>% 
+  set_engine("glmnet",
+             intercept = TRUE, standardize = TRUE,
+             path_values = exp(seq(-11, -1, length.out = 75)))
+
+enet_wflow <- workflow() %>% 
+  add_model(enet_spec) %>% 
+  add_recipe(bp_stan)
+```
+
+
+We are trying out a large number of tuning parameter combinations in our search grid. A parallel backend is setup in the code chunk below to speed up the training process.  
+
+```{r, make_parallel_backend}
+if(parallel::detectCores(logical=FALSE) > 3){
+  library(doParallel)
+  
+  num_cores <- parallel::detectCores(logical=FALSE)
+  cl <- makePSOCKcluster(num_cores - 1)
+  registerDoParallel(cl)
+}
+```
+
+The Elastic Net model is training and assessed in the code chunk below.  
+
+```{r, train_assess_enet_add}
+start_enet <- Sys.time()
+
+enet_res <- tune_grid(
+  enet_wflow,
+  resamples = cv_folds,
+  grid = enet_grid,
+  metrics = my_metrics
+)
+
+finish_enet <- Sys.time()
+
+finish_enet - start_enet
+```
+
+The repeated cross-validation results are visualized below.  
+
+```{r, viz_enet_traing_results}
+enet_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = log(penalty))) +
+  geom_ribbon(mapping = aes(ymin = mean - std_err,
+                            ymax = mean + std_err,
+                            group = interaction(mixture, .metric),
+                            fill = as.factor(mixture)),
+              alpha = 0.35) +
+  geom_line(mapping = aes(y = mean,
+                          group = interaction(mixture, .metric),
+                          color = as.factor(mixture)),
+            size = 1.15) +
+  facet_wrap(~.metric, scales = "free_y", ncol = 1) +
+  scale_fill_viridis_d("mixing fraction") +
+  scale_color_viridis_d("mixing fraction") +
+  labs(y = "performance metric value") +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Which tuning parameter values maximize the ROC AUC?  
+
+```{r, check_enet_tune_best_roc_auc}
+enet_res %>% select_best(metric = 'roc_auc')
+```
+
+What tuning parameter values would be identified as most appropriate based on the one-standard error rule, according to ROC AUC?  
+
+```{r, check_enet_tune_roc_auc_onese}
+enet_res %>% 
+  select_by_one_std_err(desc(penalty), desc(mixture), metric = 'roc_auc')
+```
+
+The figure below focuses on the ROC AUC results and identifies the best overall penalty value (red vertical line) and the one-standard error rule identified tuning parameter value (orange vertical line).  
+
+```{r, check_enet_roc_auc_viz_results}
+enet_res %>% collect_metrics() %>% 
+  filter(.metric %in% c("roc_auc")) %>% 
+  ggplot(mapping = aes(x = log(penalty))) +
+  geom_ribbon(mapping = aes(ymin = mean - std_err,
+                            ymax = mean + std_err,
+                            group = interaction(mixture, .metric),
+                            fill = as.factor(mixture)),
+              alpha = 0.35) +
+  geom_line(mapping = aes(y = mean,
+                          group = interaction(mixture, .metric),
+                          color = as.factor(mixture)),
+            size = 1.15) +
+  geom_vline(data = enet_res %>% select_best("roc_auc"),
+             mapping = aes(xintercept = log(penalty)),
+             color = 'red', linetype = 'dashed', size = 1.2) +
+  geom_vline(data = enet_res %>% 
+               select_by_one_std_err(desc(penalty), desc(mixture), metric = 'roc_auc'),
+             mapping = aes(xintercept = log(penalty)),
+             color = 'orange', linetype = 'dashed', size = 1.2) +
+  facet_wrap(~.metric, scales = "free_y", ncol = 1) +
+  scale_fill_viridis_d("mixing fraction") +
+  scale_color_viridis_d("mixing fraction") +
+  labs(y = 'performance metric value') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+The best tuning parameter set consists of a mixing fraction equal to 0.1, wheter we focus on the best results or the one-standard error rule. Later in the semester we will learn how to interpret such a result and why it makes sense for this application.  
+
+The tuning parameters are selected based on the one-standard error rule and the workflow is finalized below.  
+
+```{r, get_final_wflow_enet_roc_auc}
+enet_best_roc_auc_params <- enet_res %>% 
+  select_by_one_std_err(desc(penalty), desc(mixture), metric = 'roc_auc') %>% 
+  select(all_of(names(enet_grid)))
+
+final_enet_wflow <- enet_wflow %>% 
+  finalize_workflow(enet_best_roc_auc_params)
+```
+
+
+The finalized Elastic Net workflow is retrained and reassessed with resampling. This is done so that the hold-out set predictions can be saved to support comparison with other models. Although this is somewhat inefficient, because we are retraining and reevaluating a model we already trained, the predictions were not saved previously. We did not save the predictions with the original tuning grid because we used such a large number of tuning parameter combinations and saving predictions for all tuning parameter sets is wasted memory.  
+
+```{r, retrain_final_enet_model}
+final_enet_res <- final_enet_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+The confusion matrices averaged over the folds per repeat for the tuned Elastic Net model are shown below.  
+
+```{r, viz_conf_mat_enet_per_repeat}
+final_enet_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_nest(id, id2) %>% 
+  mutate(conf_mats = map(data, 
+                         ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+  mutate(conf_table = map(conf_mats, ~as.data.frame(.x$table))) %>% 
+  select(id, id2, conf_table) %>% 
+  tidyr::unnest(conf_table) %>% 
+  group_by(id, Prediction, Truth) %>% 
+  summarise(Freq = mean(Freq, na.rm = TRUE),
+            .groups = 'drop') %>% 
+  mutate(Prediction = forcats::fct_rev(Prediction)) %>% 
+  ggplot(mapping = aes(x = Truth, y = Prediction)) +
+  geom_tile(mapping = aes(fill = Freq),
+            color = 'black') +
+  geom_text(mapping = aes(label = Freq),
+            color = 'white', size = 7.5) +
+  facet_wrap(~id) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+We can compare the averaged confusion matrices between the previous non-penalized model and the tuned elastic net model. The tuned elastic net model has higher True-Positive counts and lower False-Negative counts. It seems though that the original non-penalized model has better True-Negative performance, but it's difficult to say from the visualization alone.  
+
+```{r, compare_conf_mat_mle_enet_final}
+final_enet_res %>% collect_predictions(summarize = FALSE) %>% 
+  group_nest(id, id2) %>% 
+  mutate(conf_mats = map(data, 
+                         ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+  mutate(conf_table = map(conf_mats, ~as.data.frame(.x$table))) %>% 
+  select(id, id2, conf_table) %>% 
+  tidyr::unnest(conf_table) %>% 
+  group_by(id, Prediction, Truth) %>% 
+  summarise(Freq = mean(Freq, na.rm = TRUE),
+            .groups = 'drop') %>% 
+  mutate(model_name = 'ENET') %>% 
+  bind_rows(glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+              group_nest(id, id2) %>% 
+              mutate(conf_mats = map(data, 
+                                     ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+              mutate(conf_table = map(conf_mats, ~as.data.frame(.x$table))) %>% 
+              select(id, id2, conf_table) %>% 
+              tidyr::unnest(conf_table) %>% 
+              group_by(id, Prediction, Truth) %>% 
+              summarise(Freq = mean(Freq, na.rm = TRUE),
+                        .groups = 'drop') %>% 
+              mutate(model_name = "GLM")) %>% 
+  mutate(Prediction = forcats::fct_rev(Prediction)) %>% 
+  ggplot(mapping = aes(x = Truth, y = Prediction)) +
+  geom_tile(mapping = aes(fill = Freq),
+            color = 'black') +
+  geom_text(mapping = aes(label = Freq),
+            color = 'white', size = 7.5) +
+  facet_grid(model_name~id) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+Let's directly compare the performance metrics summarized over all resample folds between the two models. The Accuracy and ROC AUC means are higher for the tuned Elastic Net than the non-penalized model. There is some overlap in their 95% confidence intervals. However, the mean log loss for the tuned Elastic Net model is definitely better. We will learn how to interpret mean log loss later in the semester.  
+
+```{r, viz_compare_mle_enet_final_metrics}
+glm_add_res %>% collect_metrics(summarize = TRUE) %>% 
+  mutate(wflow_id = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'ENET')) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey50', size = 0.75) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.45) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.1) +
+  facet_wrap(~.metric, scales = "free_y", nrow = 1) +
+  labs(x = '', y = 'performance metric value') +
+  theme_bw()
+```
+
+In addition to metrics that consider point-wise comparisons like Accuracy and the ROC curve, we can also consider how generally **calibrated** the classifier is to the data. The **calibration curve** provides a graphical tool for assessing such performance. The `tidymodels` framework does not currently have a function to create the calibration curve. Thus, we need to organize the results in such a way as to use the `calibration()` function from the `caret` package.  
+
+The calibration curves for the two models are compared below. The calibration curve is an attempt to create a predicted vs observed style figure for the probability predictions. It helps us understand the "long run" behavior of the model, in that we are examining the observed event frequency with respect to the model predicted probability. The non-penalized model under-predicts the event frequency while the tuned Elastic Net model over-predicts the event frequency, for low predicted probabilities. 
+
+```{r, viz_cal_curve_mle_enet_final}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  select(id, id2, .row, GLM = .pred_good, Class) %>% 
+  left_join(final_enet_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, ENET = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  select(Class, GLM, ENET) %>% 
+  caret::calibration(Class ~ GLM + ENET, data = .,
+                     cuts = 10) %>% 
+  ggplot() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Let's fit the final tuned Elastic Net model.  
+
+```{r, fit_final_tune_enet_model}
+final_enet_fit <- final_enet_wflow %>% fit(my_ion)
+```
+
+
+How many inputs have been "turned off"?  
+
+```{r, check_enet_turned_off}
+final_enet_fit %>% 
+  tidy() %>% 
+  filter(!stringr::str_detect(term, "Intercept")) %>% 
+  summarise(num_zero = sum(estimate == 0),
+            fraction_zero = mean(estimate == 0))
+```
+
+Which inputs have been "turned off"?  
+
+```{r, check_which_enet_turned_off}
+final_enet_fit %>% 
+  tidy() %>% 
+  filter(estimate == 0)
+```
+
+#### Preprocessing with PCA
+
+As mentioned previously, we do not have enough observations to try more complicated features with our linear methods. However, we can try to exploit the correlation structure of the inputs and reduce dimensionality via PCA. The PCs can be used as features to predictive models!  
+
+Let's first check the names of the created features within the recipe when we use 5 PCs. We will discuss in detail at the end of the semester why it is important to first center and scale the variables before applying PCA, as is shown in the recipe below.  
+
+```{r, check_pc_feature_names}
+recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = 5) %>% 
+  prep(training = my_ion, retain = TRUE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+```
+
+We can derive further features from the PCs. For example, we can create polynomial features:  
+
+```{r, check_pc_poly_names}
+recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = 5) %>% 
+  step_poly(starts_with("PC"), degree = 2) %>% 
+  prep(training = my_ion, retain = TRUE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+```
+
+And we can include interactions between the PCs.  
+
+```{r, check_pc_poly_interact_names}
+recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = 5) %>% 
+  step_poly(starts_with("PC"), degree = 2) %>% 
+  step_interact(~ends_with("_poly_1"):ends_with("_poly_1")) %>% 
+  prep(training = my_ion, retain = TRUE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+```
+
+Earlier in this report, we discussed a few approaches for deciding how many PCs to retain. However, in those approaches we were not considering the relationship between inputs and a response. PCA is an **unsupervised learning** technique and so does not know anything about the response of interest. Thus, we cannot decide how many PCs to keep in our preprocessing step following those approaches. Instead, we should consider the number of components to retain as a tuning parameter when working with predictive models. Let's check how many features would be in a model with 21 PCs, all pair-wise interactions between them, and quadratic terms:  
+
+```{r, check_pc_poly_interact_21_size}
+recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = 21) %>% 
+  step_poly(starts_with("PC"), degree = 2) %>% 
+  step_interact(~ends_with("_poly_1"):ends_with("_poly_1")) %>% 
+  prep(training = my_ion, retain = TRUE) %>% 
+  bake(new_data = NULL) %>% 
+  select(-Class) %>% 
+  dim()
+```
+
+We will thus try to tune the number of components to retain, and allow up to 21 components to be used in a model with those derived features. The "RSM" style recipe with PCA is created in the code chunk below. The number of components, `num_comp`, is assigned with `tune()` to denote we will tune that value with resampling.  
+
+```{r, make_pca_rsm_recipe_object}
+bp_pca_rsm <- recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = tune()) %>% 
+  step_poly(starts_with("PC"), degree = 2) %>% 
+  step_interact(~ends_with("_poly_1"):ends_with("_poly_1"))
+```
+
+
+The tuning grid for the number of components to retain is created below.  
+
+```{r, make_pca_tune_grid}
+pca_grid <- crossing(num_comp = 2:21)
+```
+
+The workflow is created which uses the non-penalized model and the PCA preprocessing recipe with the interactions and polynomial features.  
+
+```{r, make_pca_glm_wflow_object}
+pca_glm_wflow <- workflow() %>% 
+  add_model(glm_spec) %>% 
+  add_recipe(bp_pca_rsm)
+```
+
+The model is trained and assessed for each number of PCs to retain below.  
+
+```{r, train_assess_pca_glm_model}
+start_pca <- Sys.time()
+
+pca_glm_res <- tune_grid(
+  pca_glm_wflow,
+  resamples = cv_folds,
+  grid = pca_grid,
+  metrics = my_metrics
+)
+
+finish_pca <- Sys.time()
+
+finish_pca - start_pca
+```
+
+Let's visualize the performance with respect to the number of PCs to retain.  
+
+```{r, viz_pca_glm_mod_perform_metrics_results}
+pca_glm_res %>% collect_metrics(summarize = TRUE) %>% 
+  ggplot(mapping = aes(x = num_comp)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = .metric),
+                 color = 'grey', size = 1.1) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = .metric),
+                 color = 'black', size = 1.25) +
+  geom_line(mapping = aes(y = mean,
+                          group = .metric),
+            color = 'black', size = 1.15) +
+  geom_point(mapping = aes(y = mean),
+             size = 2.21) +
+  facet_wrap(~.metric, scales = "free_y", ncol = 1) +
+  theme_bw()
+```
+
+Let's select the number of PCs based on the best averaged ROC AUC value and finalize the workflow.  
+
+```{r, finalized_pca_glm_workflow}
+pca_glm_best_roc_auc_params <- pca_glm_res %>% select_best(metric = 'roc_auc')
+
+final_pca_glm_wflow <- pca_glm_wflow %>% 
+  finalize_workflow(pca_glm_best_roc_auc_params)
+```
+
+Retrain and assess the finalized model and save the test set predictions.  
+
+```{r, retrain_final_pca_glm_lmodel_preds}
+final_pca_glm_res <- final_pca_glm_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+Let's compare the three models have have finalized so far.  
+
+```{r, compare_perform_all_mdoels_so_far}
+glm_add_res %>% collect_metrics(summarize = TRUE) %>% 
+  mutate(wflow_id = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'ENET')) %>% 
+  bind_rows(final_pca_glm_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'PCA GLM')) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey50', size = 0.75) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.45) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.1) +
+  facet_wrap(~.metric, scales = "free_y", nrow = 1) +
+  labs(x = '', y = 'performance metric value') +
+  theme_bw()
+```
+
+Let's compare the resample averaged ROC curves between the three models. The ROC Curves shown below are consistent with the ROC AUC summary in the figure above.  
+
+```{r, viz_roc_curves_all_models_so_far}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  mutate(model = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_predictions(summarize = FALSE) %>% 
+              mutate(model = "ENET")) %>% 
+  bind_rows(final_pca_glm_res %>% collect_predictions(summarize = FALSE) %>% 
+              mutate(model = "PCA GLM")) %>% 
+  group_by(model) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+
+```
+
+#### PCA Preprocessing with Elastic Net
+
+Our previous PCA based model tuned the number PCs. Instead, we could use a large number of PCs and use penalization methods to try and "turn off" unimportant features. This way, if we need certain features from higher order PCs they can be retained even if most higher order derived features are removed.  
+
+The recipe with a large number of PCs and all pair-wise interactions and quadratic features is created below.  
+
+```{r, make_new_pca_rsm_recipe_object}
+bp_pca21_rsm <- recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = 21) %>% 
+  step_poly(starts_with("PC"), degree = 2) %>% 
+  step_interact(~ends_with("_poly_1"):ends_with("_poly_1"))
+```
+
+
+The workflow with the Elastic Net model and the large number of PCs is created below.  
+
+```{r, make_pca_enet_wflow_object}
+pca_enet_wflow <- workflow() %>% 
+  add_model(enet_spec) %>% 
+  add_recipe(bp_pca21_rsm)
+```
+
+The model is trained and assessed using the Elastic Net tuning grid created previously.  
+
+```{r, train_assess_pca_enet_model}
+start_pca_enet <- Sys.time()
+
+pca_enet_res <- tune_grid(
+  pca_enet_wflow,
+  resamples = cv_folds,
+  grid = enet_grid,
+  metrics = my_metrics
+)
+
+finish_pca_enet <- Sys.time()
+
+finish_pca_enet - start_pca_enet
+```
+
+The resampling results are visualized below.  
+
+```{r, viz_pca_enet_cv_results}
+pca_enet_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = log(penalty))) +
+  geom_ribbon(mapping = aes(ymin = mean - std_err,
+                            ymax = mean + std_err,
+                            group = interaction(mixture, .metric),
+                            fill = as.factor(mixture)),
+              alpha = 0.35) +
+  geom_line(mapping = aes(y = mean,
+                          group = interaction(mixture, .metric),
+                          color = as.factor(mixture)),
+            size = 1.15) +
+  facet_wrap(~.metric, scales = "free_y", ncol = 1) +
+  scale_fill_viridis_d("mixing fraction") +
+  scale_color_viridis_d("mixing fraction") +
+  labs(y = "performance metric value") +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Since we start the semester focusing on Accuracy and ROC AUC with classification models, remove the mean log loss to help make the visualization slightly less cluttered.  
+
+```{r, viz_pca_enet_cv_results_b}
+pca_enet_res %>% collect_metrics() %>% 
+  filter(.metric %in% c("accuracy", "roc_auc")) %>% 
+  ggplot(mapping = aes(x = log(penalty))) +
+  geom_ribbon(mapping = aes(ymin = mean - std_err,
+                            ymax = mean + std_err,
+                            group = interaction(mixture, .metric),
+                            fill = as.factor(mixture)),
+              alpha = 0.35) +
+  geom_line(mapping = aes(y = mean,
+                          group = interaction(mixture, .metric),
+                          color = as.factor(mixture)),
+            size = 1.15) +
+  facet_wrap(~.metric, scales = "free_y", ncol = 1) +
+  scale_fill_viridis_d("mixing fraction") +
+  scale_color_viridis_d("mixing fraction") +
+  labs(y = "performance metric value") +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+As shown above, the ROC AUC increases as the penalty term increases when the mixing fraction is 0.1. However, the Accuracy drops off after a log penalty of -3. Such a dramatic difference in performance between the two metrics is interesting. It warrants further investigation into the model behavior to help interpret what is going on. For now though, we will select the best tuning parameter values based on the Accuracy instead of the ROC AUC value. The one-standard error rule is applied and the workflow is finalized in the code chunk below.  
+
+```{r, make_final_pca_enet_model_wfolow_object}
+pca_enet_best_roc_auc_params <- pca_enet_res %>% 
+  select_by_one_std_err(desc(penalty), desc(mixture), metric = 'accuracy') %>% 
+  select(all_of(names(enet_grid)))
+
+final_pca_enet_wflow <- pca_enet_wflow %>% 
+  finalize_workflow(pca_enet_best_roc_auc_params)
+```
+
+
+The finalized workflow is retrained and reassessed below.  
+
+```{r, retrain_final_pca_enet_save_preds}
+final_pca_enet_res <- final_pca_enet_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+#### Linear methods comparison
+
+The performance metric summarized across all resamples for the finalized models are shown below. As we see below, the Elastic Net model with PCA preprocessing and derived features is the best model so far.  
+
+```{r, viz_final_mod_perform_compare_so_far}
+glm_add_res %>% collect_metrics(summarize = TRUE) %>% 
+  mutate(wflow_id = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'ENET')) %>% 
+  bind_rows(final_pca_glm_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'PCA GLM')) %>% 
+  bind_rows(final_pca_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'PCA ENET')) %>% 
+  mutate(wflow_id = factor(wflow_id,
+                           levels = c("GLM", "ENET", "PCA GLM", "PCA ENET"))) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey50', size = 0.75) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.45) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.1) +
+  facet_wrap(~.metric, scales = "free_y", nrow = 1) +
+  labs(x = '', y = 'performance metric value') +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 6))
+
+```
+
+For additional context, let's compare the models based on their averaged confusion matrices. A function is created below which helps streamline the creation of the confusion matrix.  
+
+```{r, helper_conf_mat_function_define}
+my_resampled_conf_mat <- function(resample_result)
+{
+  resample_result %>% collect_predictions(summarize = FALSE) %>% 
+    group_nest(id, id2) %>% 
+    mutate(conf_mats = map(data, 
+                           ~ yardstick::conf_mat(.x, truth = Class, estimate = .pred_class))) %>% 
+    mutate(conf_table = map(conf_mats, ~as.data.frame(.x$table))) %>% 
+    select(id, id2, conf_table) %>% 
+    tidyr::unnest(conf_table) %>% 
+    group_by(id, Prediction, Truth) %>% 
+    summarise(Freq = mean(Freq, na.rm = TRUE),
+              .groups = 'drop')
+}
+```
+
+The averaged confusion matrices are compared below. The models which use PCA as a preprocessing step and thus allow for interactions and quadratic effects have better True-Negative performance compared to the models with only linear additive terms. All models have higher False-Positive counts than False-Negative counts, demonstrating which error type is more prevelant.  
+
+```{r, viz_compare_model_conf_mats_so_far}
+my_resampled_conf_mat(glm_add_res) %>% mutate(wflow_id = 'GLM') %>% 
+  bind_rows(my_resampled_conf_mat(final_enet_res) %>% mutate(wflow_id = 'ENET')) %>% 
+  bind_rows(my_resampled_conf_mat(final_pca_glm_res) %>% mutate(wflow_id = "PCA GLM")) %>% 
+  bind_rows(my_resampled_conf_mat(final_pca_enet_res) %>% mutate(wflow_id = "PCA ENET")) %>% 
+  mutate(Prediction = forcats::fct_rev(Prediction)) %>% 
+  mutate(wflow_id = factor(wflow_id,
+                           levels = c("GLM", "ENET", "PCA GLM", "PCA ENET",
+                                      "NNET", "PCA NNET"))) %>% 
+  ggplot(mapping = aes(x = Truth, y = Prediction)) +
+  geom_tile(mapping = aes(fill = Freq),
+            color = 'black') +
+  geom_text(mapping = aes(label = Freq),
+            color = 'white', size = 5.5) +
+  facet_grid(wflow_id~id) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+
+The "overall" or "grand" averaged ROC curves are compared below. The ROC curves are consistent with overall averaged ROC AUC metric shown previously. The best model has the ROC curve closest to that of the "right angle" step change.  
+
+```{r, viz_compare_overall_roc_so_far}
+map2_dfr(list(glm_add_res, final_enet_res, 
+              final_pca_glm_res, final_pca_enet_res),
+         c("GLM", "ENET", "PCA GLM", "PCA ENET"),
+         function(ll, ln){
+           ll %>% collect_predictions() %>% mutate(wflow_id = ln)
+         }) %>% 
+  group_by(wflow_id) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+```
+
+
+Including each resample fold ROC curve gives us an idea about the variability of the ROC curve. The line color is used to represent the separate repeats in the figure below, and the facets correspond to separate models. The best performing model, based on the overall summary statistics, the "PCA ENET" model, has relatively little variability in the ROC curve across the resamples.  
+
+```{r, viz_compare_resample_roc_so_far}
+map2_dfr(list(glm_add_res, final_enet_res,
+              final_pca_glm_res, final_pca_enet_res),
+         c("GLM", "ENET", "PCA GLM", "PCA ENET"),
+         function(ll, ln){
+           ll %>% collect_predictions() %>% mutate(wflow_id = ln)
+         }) %>% 
+  group_by(wflow_id, id, id2) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  ggplot(mapping = aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path(mapping = aes(color = id,
+                          group = interaction(wflow_id, id, id2)),
+            size = 0.8, alpha = 0.5, linetype = 'dashed') +
+  geom_path(data = map2_dfr(list(glm_add_res, final_enet_res,
+                                 final_pca_glm_res, final_pca_enet_res),
+                            c("GLM", "ENET", "PCA GLM", "PCA ENET"),
+                            function(ll, ln){
+                              ll %>% collect_predictions() %>% mutate(wflow_id = ln)
+                              }) %>%
+              group_by(wflow_id, id) %>%
+              roc_curve(Class, .pred_good),
+            mapping = aes(group = interaction(wflow_id, id),
+                          color = id),
+            size = 1.25) +
+  geom_path(data = map2_dfr(list(glm_add_res, final_enet_res,
+                                 final_pca_glm_res, final_pca_enet_res),
+                            c("GLM", "ENET", "PCA GLM", "PCA ENET"),
+                            function(ll, ln){
+                              ll %>% collect_predictions() %>% mutate(wflow_id = ln)
+                              }) %>%
+              group_by(wflow_id) %>%
+              roc_curve(Class, .pred_good),
+            color = 'black', size = 1.3) +
+  geom_abline(slope = 1, intercept = 0, linetype = 'dotted') +
+  coord_equal() +
+  facet_wrap(~wflow_id) +
+  theme_bw()
+```
+
+
+Lastly, let's compare the finalized models we have created so far based on the calibration curve. Interestingly, the best performing model does not appear to be the most well calibrated. The non-penalized model with PCA based features appears to be the most well calibrated. If calibration was our primary interest, we would then consider using this model over the Elastic Net model with a large number of PCs.  
+
+```{r, viz_compare_cal_curve_models_so_far}
+glm_add_res %>% collect_predictions(summarize = FALSE) %>% 
+  select(id, id2, .row, GLM = .pred_good, Class) %>% 
+  left_join(final_enet_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, ENET = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_pca_glm_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, PCA_GLM = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_pca_enet_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, PCA_ENET = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  select(Class, GLM, ENET, PCA_GLM, PCA_ENET) %>% 
+  caret::calibration(Class ~ GLM + ENET + PCA_ENET + PCA_GLM, data = .,
+                     cuts = 10) %>% 
+  ggplot() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+### Non-linear methods
+
+#### Naive Bayes
+
+Our exploratory visualizations revealed that several of the inputs have different *conditional distributions* when we condition (essentially group by) on the level of `Class`. We also so saw the the average conditioned on the level of `Class` appeared quite different for multiple inputs. Because of this we should consider using a Naive Bayes classifier. We will use the Naive Bayes classifier from the `klaR` package by specifying the engine as `'klaR'` in the Naive Bayes model specification. This formulation contains two tuning parameters, `smoothness`, and `Laplace`. The `smoothness` parameter is the kernel density estimate smoothing used to represent the distribution of the inputs. The `Laplace` correction helps deal with low frequency counts. The basic information about these tuning parameters are displayed below.  
+
+```{r, check_nb_tune_parameters}
+smoothness()
+
+Laplace()
+```
+
+We will use a simple grid with values between the default bounds.  
+
+```{r, make_nb_tune_grid}
+nb_grid <- crossing(smoothness = c(0.5, 0.75, 1.0, 1.25, 1.5),
+                    Laplace = c(0, 1, 2, 3))
+```
+
+
+Please note that to use the Naive Bayes model we must first load in the `discrim` package. The `discrim` package is part of `tidymodels` but must be loaded separately.  
+
+```{r, load_discrim_pkg}
+library(discrim)
+```
+
+The model specification for the Naive Bayes classifier is created below.  
+
+```{r, make_nb_spec_obj}
+nb_spec <- naive_Bayes(smoothness = tune(), Laplace = tune()) %>% 
+  set_engine("klaR") %>% 
+  set_mode("classification")
+```
+
+The Naive Bayes workflow is created below by combining the model specification with the standardized input recipe.  
+
+```{r, make_nb_wflow_obj}
+nb_wflow <- workflow() %>% 
+  add_model(nb_spec) %>% 
+  add_recipe(bp_stan)
+```
+
+The Naive Bayes classifier is trained and assessed with resampling below. Please note that you must download and install the `klaR` package to run the code chunk below. You do not need to load in the `klaR` package. It just must be installed on your machine.  
+
+```{r, train_assess_nb_model}
+start_nb <- Sys.time()
+
+nb_res <- tune_grid(
+  nb_wflow,
+  resamples = cv_folds,
+  grid = nb_grid,
+  metrics = my_metrics
+)
+
+finish_nb <- Sys.time()
+
+finish_nb - start_nb
+```
+
+The Naive Bayes summarized resampling results are visualized below. As we can see the Accuracy and ROC AUC averaged values are all basically the same, regardless of the tuning parameters. There is a difference with the mean log loss, but as stated previously we will not focus on that performance metric until later in the semester.  
+
+```{r, viz_nb_results_figure}
+nb_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = smoothness)) +
+  geom_ribbon(mapping = aes(ymin = mean - 1 * std_err,
+                            ymax = mean + 1 * std_err,
+                            group = interaction(Laplace, .metric),
+                            fill = as.factor(Laplace)),
+              alpha = 0.33) +
+  geom_line(mapping = aes(y = mean,
+                          color = as.factor(Laplace),
+                          group = interaction(Laplace, .metric)),
+            size = 1.) +
+  geom_point(mapping = aes(y = mean,
+                           color = as.factor(Laplace)),
+             size = 4) +
+  facet_wrap( ~ .metric, scales = "free_y", ncol = 1) +
+  scale_fill_viridis_d("Laplace") +
+  scale_color_viridis_d("Laplace") +
+  labs(y = 'performance metric') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Let's finalize the Naive Bayes workflow by identifying the tuning parameters that maximize the ROC AUC.  
+
+```{r, finalize_nb_wflow_obj}
+nb_best_roc_auc_params <- nb_res %>% 
+  select_best("roc_auc")
+
+final_nb_wflow <- nb_wflow %>% 
+  finalize_workflow(nb_best_roc_auc_params)
+```
+
+
+The finalized Naive Bayes classifier is retrained and reasssessed below.  
+
+```{r, retrain_final_nb_model_obj}
+final_nb_res <- final_nb_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+#### Neural networks
+
+Since we do not have many observations relative to the number of inputs, we will only use a relatively low number of hidden units for this problem. We will use regularization via weight decay as well. The neural network model specification, workflow and tuning grid are set up in the code chunk below. Notice that the standardized inputs recipe is used for the neural network model. A large number of iterations are used rather than tuning the number of epochs for reasons described in the regression demo report.  
+
+```{r, make_nnet_wflow_objects}
+nnet_spec <- mlp(hidden_units = tune(), penalty = tune(), epochs = 2000) %>% 
+  set_engine("nnet", MaxNWts = 2000, trace=FALSE) %>% 
+  set_mode("classification")
+
+nnet_grid <- crossing(hidden_units = c(3, 5, 10),
+                      penalty = 10^(seq(-10, 1.75, length.out = 15)))
+
+nnet_wflow <- workflow() %>% 
+  add_model(nnet_spec) %>% 
+  add_recipe(bp_stan)
+```
+
+The neural network is trained and assessed in the code chunk below.  
+
+```{r, train_assess_nnet_model_obj}
+start_nnet <- Sys.time() 
+
+set.seed(111)
+nnet_res <- tune_grid(
+  nnet_wflow,
+  resamples = cv_folds,
+  grid = nnet_grid,
+  metrics = my_metrics
+)
+
+finish_nnet <- Sys.time()
+
+finish_nnet - start_nnet
+```
+
+The neural network resampling results are shown below.  
+
+```{r, viz_nnet_cv_results_all}
+nnet_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = log10(penalty))) +
+  geom_ribbon(mapping = aes(group = interaction(hidden_units, .metric),
+                            fill = as.factor(hidden_units),
+                            ymin = mean - std_err,
+                            ymax = mean + std_err),
+              alpha = 0.4) +
+  geom_line(mapping = aes(group = interaction(hidden_units, .metric),
+                          color = as.factor(hidden_units),
+                          y = mean),
+            size = 1.2) +
+  facet_wrap(~.metric, scales = "free_y", nrow = 1) +
+  scale_fill_viridis_d("Hidden units") +
+  scale_color_viridis_d("Hidden units") +
+  labs(y = 'performance metric value') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+Let's select the tuning parameters that maximize ROC AUC and finalize the workflow.  
+
+```{r, select_best_roc_auc_nnet_params_final}
+nnet_best_max_acc_params <- nnet_res %>% 
+  select_best(metric = 'roc_auc')
+
+final_nnet_wflow <- nnet_wflow %>% 
+  finalize_workflow(nnet_best_max_acc_params)
+```
+
+The finalized neural network workflow is retrained and reassessed below.  
+
+```{r, retrain_reassess_nnet_final_obj}
+final_nnet_res <- final_nnet_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+#### Neural network with PCA features
+
+Instead of using the original inputs as the features for the neural network, let's use PC scores. This way we can try more hidden units to try and improve the model performance. The workflow is analogous to what we did with the Elastic Net model with PCA features, except we will not derive interactions or polynomial terms from the PCs. The recipe is simpler, with the PCs passed to the neural network as the input features.  
+
+The code chunk below creates the preprocessing recipe for the PCs. Notice the number of PCs is treated as a tuning parameter. We will try out a low number, middle number, and high number of PCs to retain. This way we can focus on the number of hidden units and the regularization strength of the model as the primary tuning parameters.  
+
+```{r, make_pca_nnet_prepro_recipe_and_tune_grid}
+bp_stan_pca <- recipe(Class ~ ., data = my_ion) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = tune())
+
+pca_nnet_grid <- crossing(num_comp = c(3, 7, 15),
+                          hidden_units = c(3, 5, 10, 15, 20, 25),
+                          penalty = 10^(seq(-5, 1.75, length.out = 11)))
+```
+
+
+The workflow for the PCA based neural network is defined below.  
+
+```{r, make_pca_nnet_wflow_obj}
+pca_nnet_wflow <- workflow() %>% 
+  add_model(nnet_spec) %>% 
+  add_recipe(bp_stan_pca)
+```
+
+The model is trained and assessed below.  
+
+```{r, train_assess_pca_nnet_obj}
+start_pca_nnet <- Sys.time() 
+
+set.seed(111)
+pca_nnet_res <- tune_grid(
+  pca_nnet_wflow,
+  resamples = cv_folds,
+  grid = pca_nnet_grid,
+  metrics = my_metrics
+)
+
+finish_pca_nnet <- Sys.time()
+
+finish_pca_nnet - start_pca_nnet
+```
+
+The resampling results are visualized below.  
+
+```{r, viz_pca_nnet_results_figure}
+pca_nnet_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = log10(penalty))) +
+  geom_ribbon(mapping = aes(group = interaction(hidden_units, .metric, num_comp),
+                            fill = as.factor(hidden_units),
+                            ymin = mean - std_err,
+                            ymax = mean + std_err),
+              alpha = 0.4) +
+  geom_line(mapping = aes(group = interaction(hidden_units, .metric),
+                          color = as.factor(hidden_units),
+                          y = mean),
+            size = 1.2) +
+  facet_grid(.metric ~ num_comp, scales = "free_y") +
+  scale_fill_viridis_d("Hidden units") +
+  scale_color_viridis_d("Hidden units") +
+  labs(y = 'performance metric value') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+For simplicity, let's select the tuning parameters based on the maximum ROC AUC.  
+
+```{r, select_final_pca_nnet_params_wflow}
+pca_nnet_best_max_acc_params <- pca_nnet_res %>% 
+  select_best(metric = 'roc_auc')
+
+final_pca_nnet_wflow <- pca_nnet_wflow %>% 
+  finalize_workflow(pca_nnet_best_max_acc_params)
+```
+
+The finalized neural network with PCA features is retrained and assessed below.  
+
+```{r, retrain_reassess_pca_nnet_final_obj}
+final_pca_nnet_res <- final_pca_nnet_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+#### Support Vector Machines (SVM)
+
+We will use the Radial Basis Function (RBF) kernel. Just as with the regression demo, an initial SVM is fit to get an idea about the possible values for the sigma parameter.  
+
+```{r, fit_default_svm_rbf}
+rbf_default <- svm_rbf(cost = 1) %>% 
+  set_engine('kernlab') %>% 
+  set_mode('classification')
+
+rbf_default_wflow <- workflow() %>% 
+  add_model(rbf_default) %>% 
+  add_recipe(bp_stan)
+
+rbf_default_fit <- rbf_default_wflow %>% fit(my_ion)
+
+rbf_default_fit
+```
+
+The estimated sigma parameter is used to define a tuning grid for the SVM RBF model.  
+
+```{r, make_svm_rbf_tune_grid}
+rbf_grid <- crossing(rbf_sigma = c(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
+                     cost = c(0.01, 0.1, 1, 10, 100, 1000))
+```
+
+The SVM model specification and workflow are defined below.  
+
+```{r, make_svm_wflow_obj}
+svm_rbf_spec <- svm_rbf(cost = tune(), rbf_sigma = tune()) %>% 
+  set_engine('kernlab') %>% 
+  set_mode('classification')
+
+svm_rbf_wflow <- workflow() %>% 
+  add_model(svm_rbf_spec) %>% 
+  add_recipe(bp_stan)
+```
+
+The SVM RBF is trained and assessed with the specified tuning grid.  
+
+```{r, train_assess_svm_rbf_obj}
+start_rbf <- Sys.time() 
+
+set.seed(111)
+svm_rbf_res <- tune_grid(
+  svm_rbf_wflow,
+  resamples = cv_folds,
+  grid = rbf_grid,
+  metrics = my_metrics
+)
+
+finish_rbf <- Sys.time()
+
+finish_rbf - start_rbf
+```
+
+The SVM resampling results are visualized with the `autoplot()` method below.  
+
+```{r, viz_svm_res_autoplot}
+svm_rbf_res %>% autoplot() + theme_bw()
+```
+
+The tuning parameters with the high Accuracy also have high ROC AUC. Let's go ahead and select the best tuning parameter values based on Accuracy.  
+
+```{r, select_and_finalize_svm_rbf_params}
+rbf_best_max_acc_params <- svm_rbf_res %>% 
+  select_best(metric = 'accuracy')
+
+final_svm_rbf_wflow <- svm_rbf_wflow %>% 
+  finalize_workflow(rbf_best_max_acc_params)
+```
+
+The finalized model is trained and assessed below.  
+
+```{r, retrain_reassess_svm_rbf_obj}
+final_svm_rbf_res <- final_svm_rbf_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+#### SVM with PCA features
+
+We can also use PCA as a preprocessing step for SVMs. The approach is similar to what we already tried with the neural networks and Elastic Net models. We can reuse the SVM specification and the PCA tuning feature extraction recipe. These two components are just combined into a new workflow below.  
+
+```{r, make_pca_svm_wflow_obj}
+pca_rbf_wflow <- workflow() %>% 
+  add_model(svm_rbf_spec) %>% 
+  add_recipe(bp_stan_pca)
+```
+
+
+The tuning grid is defined, focusing mostly on the SVm related parameters.  
+
+```{r, make_pca_svm_tune_grid_obj}
+pca_rbf_grid <- crossing(num_comp = c(3, 5, 10, 15, 20),
+                         rbf_sigma = c(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
+                         cost = c(0.01, 0.1, 1, 10, 100, 1000))
+```
+
+
+The model is trained and assessed below.  
+
+```{r, train_assess_pca_svm_rbf_obj}
+start_pca_rbf <- Sys.time() 
+
+set.seed(111)
+pca_rbf_res <- tune_grid(
+  pca_rbf_wflow,
+  resamples = cv_folds,
+  grid = pca_rbf_grid,
+  metrics = my_metrics
+)
+
+finish_pca_rbf <- Sys.time()
+
+finish_pca_rbf - start_pca_rbf
+```
+
+The results are visualized below.  
+
+```{r, viz_pca_svm_rbf_results_fig}
+pca_rbf_res %>% collect_metrics() %>% 
+  ggplot(mapping = aes(x = rbf_sigma, y = mean)) +
+  geom_line(mapping = aes(group = interaction(cost, .metric, num_comp),
+                          color = as.factor(cost))) +
+  geom_point(mapping = aes(color = as.factor(cost))) +
+  facet_grid(.metric ~ num_comp, scales = "free_y") +
+  scale_color_discrete("cost") +
+  theme_bw() +
+  theme(legend.position = "top") +
+  guides(color = guide_legend(nrow = 1))
+```
+
+Since the Accuracy is high over an interval of sigma values with roughly constant ROC AUC, let's select the tuning parameters that maximize Accuracy.  
+
+```{r, select_best_pca_svm_rbf_final_wflow}
+pca_rbf_best_max_acc_params <- pca_rbf_res %>% 
+  select_best(metric = 'accuracy')
+
+final_pca_rbf_wflow <- pca_rbf_wflow %>% 
+  finalize_workflow(pca_rbf_best_max_acc_params)
+```
+
+
+The final model is retrained and assessed below.  
+
+```{r, retrain_reassess_final_pca_rbf_model_obj}
+final_pca_rbf_res <- final_pca_rbf_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+The final model fit is created below.  
+
+```{r, make_pca_svm_final_model_fit_obj}
+final_pca_rbf_fit <- final_pca_rbf_wflow %>% fit(my_ion)
+```
+
+
+#### Random forest
+
+The random forest model specification and workflow is defined below. As with regression, tree-based methods like random forests do not require preprocessing to be performed. So we do not need to standardize the inputs.  
+
+```{r, make_rf_wflow_obj}
+rf_spec <- rand_forest(mtry = tune(), min_n = tune(), trees = 500) %>% 
+  set_engine("ranger") %>% 
+  set_mode('classification')
+
+rf_wflow <- workflow() %>% 
+  add_model(rf_spec) %>% 
+  add_formula(Class ~ .)
+```
+
+
+The tuning grid bounds for the random forest model are defined below. The `grid_regular()` function's `filter` argument is used to keep the `min_n` parameter less than 11.  
+
+```{r, make_rf_param_obj}
+rf_param <- rf_spec %>% parameters() %>% finalize(my_ion)
+
+rf_grid <- grid_regular(rf_param, levels = c(mtry = 7, min_n = 15),
+                        filter = min_n < 11)
+
+rf_grid %>% glimpse()
+```
+
+The random forest model is trained and assessed in the code chunk below.  
+
+```{r, train_asses_rf_obj}
+start_rf <- Sys.time() 
+
+set.seed(111)
+rf_res <- tune_grid(
+  rf_wflow,
+  resamples = cv_folds,
+  grid = rf_grid,
+  metrics = my_metrics
+)
+
+finish_rf <- Sys.time()
+
+finish_rf - start_rf
+```
+
+The results are visualized with the `autoplot()` method below.  
+
+```{r, viz_rf_results_figure}
+rf_res %>% autoplot() + theme_bw()
+```
+
+The best performance is achieved with lower values for the `mtry` tuning parameter. We will learn why that is the case later in the semester when we discuss random forest in more detail.
+
+Let's select the best tuning parameters as the one that maximizes the Accuracy because the ROC AUC is also high for that same set of parameters.  
+
+```{r, select_best_rf_params_final}
+rf_best_acc_params <- rf_res %>% select_best('accuracy')
+```
+
+The finalized workflow is defined below including the variable importance ranking specification.  
+
+```{r, make_final_rf_wflow}
+final_rf_spec <- rand_forest(mtry = 6,
+                              min_n = 2,
+                              trees = 500) %>% 
+  set_engine('ranger', importance = 'impurity') %>% 
+  set_mode('classification')
+
+final_rf_wflow <- workflow() %>% 
+  add_model(final_rf_spec) %>% 
+  add_formula(Class ~ .)
+```
+
+The finalized workflow is trained and assessed below.  
+
+```{r, retrain_assess_rf_wflow_final}
+final_rf_res <- final_rf_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+Let's also fit the finalized workflow to the complete data as well.  
+
+```{r, fit_final_rf_model_obj}
+set.seed(111)
+final_rf_fit <- final_rf_wflow %>% 
+  fit(my_ion)
+```
+
+
+#### Gradient boosted trees
+
+Lastly, let's train a gradient boosted tree using XGBoost. The model specification and model workflow are created below. As with random forest, since XGBoost is a tree-based method, minimal preprocessing is required.  
+
+```{r, make_xgb_spec_wflow_obj}
+xgb_spec <- boost_tree(tree_depth = tune(), learn_rate = tune(), 
+                       trees = tune(), mtry = tune(), sample_size = tune()) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+xgb_wflow <- workflow() %>% 
+  add_model(xgb_spec) %>% 
+  add_formula(Class ~ .)
+```
+
+
+The XGBoost tuning grid is defined below. A large number of combinations are used.  
+
+```{r, make_xgb_tune_grid_obj}
+xgb_grid <- crossing(tree_depth = c(1, 3, 6, 9, 12),
+                     learn_rate = c(0.01, 0.1, 0.3),
+                     trees = c(25, 50, 100, 150, 200, 250, 300),
+                     mtry = c(3, 6, 12, 24),
+                     sample_size = c(0.6, 0.8, 1.0))
+
+xgb_grid %>% glimpse()
+```
+
+The XGBoost model is trained and assessed below.  
+
+```{r, train_assess_xgb_res_obj}
+start_xgb <- Sys.time() 
+
+set.seed(111)
+xgb_res <- tune_grid(
+  xgb_wflow,
+  resamples = cv_folds,
+  grid = xgb_grid,
+  metrics = my_metrics
+)
+
+finish_xgb <- Sys.time()
+
+finish_xgb - start_xgb
+```
+
+The resampling results are visualized below for Accuracy.  
+
+```{r, viz_xgb_acc_results_figure}
+xgb_res %>% collect_metrics() %>% 
+  filter(.metric == 'accuracy') %>% 
+  ggplot(mapping = aes(x = trees, y = mean)) +
+  geom_line(mapping = aes(color = as.factor(tree_depth),
+                          group = interaction(mtry, tree_depth,
+                                              learn_rate, sample_size),
+                          linetype = as.factor(sample_size)),
+            size = 1.) +
+  facet_grid(learn_rate ~ mtry, labeller = "label_both") +
+  scale_color_viridis_d("tree depth") +
+  scale_linetype_discrete("sample size") +
+  labs(y = 'Accuracy') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+The ROC AUC resampling results are visualized below.  
+
+```{r, viz_xgb_roc_results_figure}
+xgb_res %>% collect_metrics() %>% 
+  filter(.metric == 'roc_auc') %>% 
+  ggplot(mapping = aes(x = trees, y = mean)) +
+  geom_line(mapping = aes(color = as.factor(tree_depth),
+                          group = interaction(mtry, tree_depth,
+                                              learn_rate, sample_size),
+                          linetype = as.factor(sample_size)),
+            size = 1.) +
+  facet_grid(learn_rate ~ mtry, labeller = "label_both") +
+  scale_color_viridis_d("tree depth") +
+  scale_linetype_discrete("sample size") +
+  labs(y = 'ROC AUC') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+The mean log loss resampling results are visualized below.  
+
+```{r, viz_xgb_mlogloss_results_figure}
+xgb_res %>% collect_metrics() %>% 
+  filter(.metric == 'mn_log_loss') %>% 
+  ggplot(mapping = aes(x = trees, y = mean)) +
+  geom_line(mapping = aes(color = as.factor(tree_depth),
+                          group = interaction(mtry, tree_depth,
+                                              learn_rate, sample_size),
+                          linetype = as.factor(sample_size)),
+            size = 1.) +
+  facet_grid(learn_rate ~ mtry, labeller = "label_both") +
+  scale_color_viridis_d("tree depth") +
+  scale_linetype_discrete("sample size") +
+  labs(y = 'ROC AUC') +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+The overall trends in the performance metrics with respect to the tuning parameters appear to be consistent, so let's select the best tuning parameter set as those which maximize the ROC AUC.  
+
+```{r, select_final_xgb_wflow_params}
+xgb_best_roc_params <- xgb_res %>% select_best('roc_auc')
+
+final_xgb_wflow <- xgb_wflow %>% 
+  finalize_workflow(xgb_best_roc_params)
+```
+
+The final XGBoost workflow is retrained and assessed below to provide the hold-out set predictions.  
+
+```{r, retrain_reassess_xgb_wflow_final}
+set.seed(111)
+final_xgb_res <- final_xgb_wflow %>% 
+  fit_resamples(cv_folds,
+                metrics = my_metrics,
+                control = control_resamples(save_pred = TRUE))
+```
+
+
+The finalized XGBoost workflow is also fit.  
+
+```{r, final_xgb_wflow_fit_Obj}
+set.seed(111)
+final_xgb_fit <- final_xgb_wflow %>% fit(my_ion)
+```
+
+### Model comparisons
+
+We have trained a large number of models from simple to complex models. Let's now combine the finalized resampling results so we can compare all models. All model's resampling summarized performance metrics are organized together in the code chunk below.  
+
+```{r, collect_all_model_metrics_summary_obj}
+all_resample_summaries <- glm_add_res %>% collect_metrics(summarize = TRUE) %>% 
+  mutate(wflow_id = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'ENET')) %>% 
+  bind_rows(final_pca_glm_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'PCA GLM')) %>% 
+  bind_rows(final_pca_enet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'PCA ENET')) %>% 
+  bind_rows(final_nb_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = 'NB')) %>% 
+  bind_rows(final_nnet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "NNET")) %>% 
+  bind_rows(final_pca_nnet_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "PCA NNET")) %>% 
+  bind_rows(final_svm_rbf_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "SVM")) %>% 
+  bind_rows(final_pca_rbf_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "PCA SVM")) %>% 
+  bind_rows(final_rf_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "RF")) %>% 
+  bind_rows(final_xgb_res %>% collect_metrics(summarize = TRUE) %>% 
+              mutate(wflow_id = "XGB")) %>% 
+  mutate(wflow_id = factor(wflow_id,
+                           levels = c("GLM", "ENET", "PCA GLM", "PCA ENET",
+                                      "NB", "NNET", "PCA NNET",
+                                      "SVM", "PCA SVM", 
+                                      "RF", "XGB")))
+```
+
+
+Let's compare the models based on their Accuracy first. The SVM with PCA preprocessed features is the best model according to Accuracy.  
+
+```{r, viz_acc_summary_all_models}
+all_resample_summaries %>% 
+  filter(.metric == "accuracy") %>% 
+  mutate(wflow_id = stringr::str_replace(wflow_id, " ", "\n")) %>% 
+  mutate(wflow_id = forcats::fct_reorder(wflow_id, mean, min)) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey', size = 1.) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.2) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.5) +
+  facet_wrap(~.metric) +
+  labs(x = '', y = 'value') +
+  theme_bw()
+```
+
+Next, let's consider the resample summarized ROC AUC. The SVM with PCA preprocessed features is still the best, but the Elastic Net with PCA features appears to be a closer second compared to the Accuracy based results.  
+
+```{r, viz_roc_summary_all_models}
+all_resample_summaries %>% 
+  filter(.metric == "roc_auc") %>% 
+  mutate(wflow_id = stringr::str_replace(wflow_id, " ", "\n")) %>% 
+  mutate(wflow_id = forcats::fct_reorder(wflow_id, mean, min)) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey', size = 1.) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.2) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.5) +
+  facet_wrap(~.metric) +
+  labs(x = '', y = 'value') +
+  theme_bw()
+```
+
+The mean log-loss resample summarized results are shown below. Again, the SVM with PCA preprocessed features is considered the best model.  
+
+```{r, viz_mnlogloss_summary_all_models}
+all_resample_summaries %>% 
+  filter(.metric == "mn_log_loss") %>% 
+  mutate(wflow_id = stringr::str_replace(wflow_id, " ", "\n")) %>% 
+  mutate(wflow_id = forcats::fct_reorder(wflow_id, mean, min)) %>% 
+  ggplot(mapping = aes(x = wflow_id)) +
+  geom_linerange(mapping = aes(ymin = mean - 2*std_err,
+                               ymax = mean + 2*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'grey', size = 1.) +
+  geom_linerange(mapping = aes(ymin = mean - 1*std_err,
+                               ymax = mean + 1*std_err,
+                               group = interaction(.metric, wflow_id)),
+                 color = 'red', size = 1.2) +
+  geom_point(mapping = aes(y = mean),
+             color = 'red', size = 3.5) +
+  facet_wrap(~.metric) +
+  labs(x = '', y = 'value') +
+  theme_bw()
+```
+
+The overall or grand averaged performance metrics are all pointing to the SVM with PCA preprocessed features as the best model. Let's visualize the overall summarized ROC curves to confirm the ROC AUC results. The ROC curve for the PCA SVM model is indeed the closest to the ideal ROC curve shape.  
+
+```{r, viz_roc_curves_summarized_all_models}
+map2_dfr(list(glm_add_res, final_enet_res, 
+              final_pca_glm_res, final_pca_enet_res,
+              final_nb_res, final_nnet_res, final_pca_nnet_res, 
+              final_svm_rbf_res, final_pca_rbf_res,
+              final_rf_res, final_xgb_res),
+         c("GLM", "ENET", "PCA GLM", "PCA ENET", 
+           "NB", "NNET", "PCA NNET", "SVM", "PCA SVM",
+           "RF", "XGB"),
+         function(ll, ln){
+           ll %>% collect_predictions() %>% mutate(wflow_id = ln)
+         }) %>% 
+  group_by(wflow_id) %>% 
+  roc_curve(Class, .pred_good) %>% 
+  autoplot()
+```
+
+Lastly, let's compare the calibration curves between a few of the models. The figure would be too busy if we included all models because we are also showing the confidence interval on the calibration curve for each model. The figure below shows the calibration curves for PCA SVM, PCA ENET, RF, and XGB.  
+
+```{r, viz_calcurve_best_models_figure}
+final_pca_enet_res %>% collect_predictions(summarize = FALSE) %>% 
+  select(id, id2, .row, PCA_ENET = .pred_good, Class) %>% 
+  left_join(final_pca_rbf_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, PCA_SVM = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_rf_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, RF = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_xgb_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, XGB = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  select(Class, PCA_ENET, PCA_SVM, RF, XGB) %>% 
+  caret::calibration(Class ~ PCA_SVM + PCA_ENET + RF + XGB, data = .,
+                     cuts = 10) %>% 
+  ggplot() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+A calibration curve with 5 bins instead is shown below.  
+
+```{r, viz_calcurve_best_models_figure_5}
+final_pca_enet_res %>% collect_predictions(summarize = FALSE) %>% 
+  select(id, id2, .row, PCA_ENET = .pred_good, Class) %>% 
+  left_join(final_pca_rbf_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, PCA_SVM = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_rf_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, RF = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  left_join(final_xgb_res %>% 
+              collect_predictions(summarize = FALSE) %>% 
+              select(id, id2, .row, XGB = .pred_good, Class),
+            by = c("id", "id2", ".row", "Class")) %>% 
+  select(Class, PCA_ENET, PCA_SVM, RF, XGB) %>% 
+  caret::calibration(Class ~ PCA_SVM + PCA_ENET + RF + XGB, data = .,
+                     cuts = 5) %>% 
+  ggplot() +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+It seems that the PCA SVM and XGB models have relatively similar calibration curves. The two on average are moderately calibrated, with the most challenging probability forecasts occuring near predicted probabilities of roughly 70%.  
+
+As one final consideration let's examine the correlation plot between Accuracy for all models. First, all non-summarized resample results are compiled.  
+
+```{r, compile_all_resample_fold_results_all_models}
+all_resample_results <- glm_add_res %>% collect_metrics(summarize = FALSE) %>% 
+  mutate(wflow_id = "GLM") %>% 
+  bind_rows(final_enet_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = 'ENET')) %>% 
+  bind_rows(final_pca_glm_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = 'PCA GLM')) %>% 
+  bind_rows(final_pca_enet_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = 'PCA ENET')) %>% 
+  bind_rows(final_nb_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = 'NB')) %>% 
+  bind_rows(final_nnet_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "NNET")) %>% 
+  bind_rows(final_pca_nnet_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "PCA NNET")) %>% 
+  bind_rows(final_svm_rbf_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "SVM")) %>% 
+  bind_rows(final_pca_rbf_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "PCA SVM")) %>% 
+  bind_rows(final_rf_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "RF")) %>% 
+  bind_rows(final_xgb_res %>% collect_metrics(summarize = FALSE) %>% 
+              mutate(wflow_id = "XGB")) %>% 
+  mutate(wflow_id = factor(wflow_id,
+                           levels = c("GLM", "ENET", "PCA GLM", "PCA ENET",
+                                      "NB", "NNET", "PCA NNET",
+                                      "SVM", "PCA SVM", 
+                                      "RF", "XGB")))
+```
+
+
+The correlation plot between the Accuracy across all models is shown below. The SVM, RF, and XGB models are highly correlated with each other.  
+
+```{r, viz_corrplot_acc_all_models}
+all_resample_results %>% 
+  mutate(wflow_id = stringr::str_replace(wflow_id, " ", "\n")) %>% 
+  filter(.metric == 'accuracy') %>% 
+  select(wflow_id, .estimate, id, id2) %>% 
+  pivot_wider(id_cols = c("id", "id2"), 
+              names_from = 'wflow_id', values_from = '.estimate') %>% 
+  select(-id, -id2) %>% 
+  corrr::correlate(quiet = TRUE, diagonal = 1) %>% 
+  corrr::stretch() %>% 
+  ggplot(mapping = aes(x = x, y = y)) +
+  geom_tile(mapping = aes(fill = r),
+            color = 'white') +
+  geom_text(mapping = aes(label = signif(r, 3),
+                          color = abs(r) > 0.75),
+            size = 3.5) +
+  scale_fill_gradient2('corr',
+                       low = 'red', mid = 'white', high = 'blue',
+                       midpoint = 0,
+                       limits = c(-1, 1)) +
+  scale_color_manual(guide = 'none',
+                     values = c("TRUE" = 'white',
+                                "FALSE" = 'black')) +
+  labs(x='', y='') +
+  theme_bw()
+```
+
+## Variable importances
+
+```{r, load_vip_pkg}
+library(vip)
+```
+
+
+Unfortunately, there is not a simple way to extract the variable importances for the SVM with PCA derived features. It would take some extract steps to identify such variable rankings. However, we can easily extract the variable importances from the tree-based methods. Let's look at the top 20 variables according to XGBoost.  
+
+```{r, vip_xgb_figure}
+final_xgb_fit %>% 
+  extract_fit_parsnip() %>% 
+  pluck("fit") %>% 
+  vip(num_features = 20) +
+  theme_bw()
+```
+
+We already saw that the random forest's performance is highly correlated with XGBoost. Let's check to see if they have similar variable importance rankings. Both models have `V27` has an important input, but the random forest does not consider `V27` has the most important input.  
+
+```{r, vip_rf_figure}
+final_rf_fit %>% 
+  extract_fit_parsnip() %>% 
+  pluck("fit") %>% 
+  vip(num_features = 20) +
+  theme_bw()
+```
+
+### Predictive trends
+
+Let's try and get some idea about the model behavior to better understand the influence of a few features on the classifications and probability of the event. Since there are such a large number of inputs, it is rather challenging to define such "visualization grids". We will focus on the most important features as defined by the variable importance rankings. Specifically, let's examine the influence of `V27` and `V5` since those two top inputs according to XGBoost and random forest, respectively. We will also consider the influence of `V3` and `V7` since those are the second highest ranked inputs according to XGB and RF, respectively. The rankings are different between the two models and so we will investigate the differences in the predictions between the models. We will also make predictions with the best performing model the PCA SVM to get further insights in the influence of the inputs. All other inputs will set to a "representative value" and so we will use their median's based on the training set.  
+
+The code chunk below defines a function which creates a list of values to use for all variables for the prediction grid. The first function `make_variable_sequence()` creates the sequence associated with a variable. The second function `make_viz_grid_list()` is a wrapper function which loops over the inputs. The two primary variables have 51 uniformly spaced values between their training set bounds. The secondary variables have 5 uniformly spaced values between their training set bounds.  
+
+```{r, make_pred_grid_list_function}
+make_variable_sequence <- function(xname, xvalues, primary_vars, secondary_vars)
+{
+  if( xname %in% primary_vars ){
+    xrange <- range(xvalues)
+    xvec <- seq(xrange[1], xrange[2], length.out = 51)
+  } else if ( xname %in% secondary_vars ) {
+    xrange <- range(xvalues)
+    xvec <- seq(xrange[1], xrange[2], length.out = 5)
+  } else {
+    xvec <- median(xvalues)
+  }
+  
+  xvec
+}
+
+make_viz_grid_list <- function(primary_vars, secondary_vars, training_inputs)
+{
+  all_names <- training_inputs %>% names()
+  
+  xlist <- purrr::map2(all_names,
+                       training_inputs,
+                       make_variable_sequence,
+                       primary_vars = primary_vars,
+                       secondary_vars = secondary_vars)
+  
+  names(xlist) <- all_names
+  
+  xlist
+}
+```
+
+The list of values per input are created below.  
+
+```{r, make_pred_grid_list}
+viz_grid_list <- make_viz_grid_list(primary_vars = c("V27", "V5"),
+                                    secondary_vars = c("V3", "V7"),
+                                    training_inputs = my_ion %>% select(-Class))
+
+viz_grid_list %>% length()
+```
+
+The list is used to create the full-factorial grid via the `expand.grid()` function below.  
+
+```{r, make_pred_grid_df}
+viz_grid_df <- expand.grid(viz_grid_list,
+                           KEEP.OUT.ATTRS = FALSE,
+                           stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_df %>% glimpse()
+```
+
+There are a lot of points in the prediction grid! That's because we are getting the complete full-factorial set of combinations of the 4 inputs we are studying. As a check, the number of unique values per input are displayed below. Notice that all inputs except `V3`, `V5`, `V7`, and `V27` have just one value.  
+
+```{r, check_pred_grid_distinct_per}
+viz_grid_df %>% purrr::map_dbl(n_distinct)
+```
+
+We can now make predictions using the final fits for the models. Let's first examine the predicted classifications for the XGBoost. As shown below, the predictions returned from the final workflow fit are stored in a tibble. The glimpse shows that the predictions are classifications consisting of the levels of `Class`.  
+
+```{r, make_xgb_pred_on_viz_grid}
+predict(final_xgb_fit, new_data = viz_grid_df) %>% 
+  glimpse()
+```
+
+Let's visualize the classifications on a surface. The XGB model is classifying the the `'good'` level in almost all combinations of the input for the bottom two facet rows in the figure. Moving between horizontal and vertical facets shows the influence of `V7` and `V3`, respectively.  
+
+```{r, viz_xgb_pred_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_xgb_fit, new_data = viz_grid_df)) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_class)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw()
+```
+
+Next, let's examine the predicted probability from XGBoost over the grid. We do that by including `type = 'prob`' in the `predict()` function. As shown below, the probability predictions include columns for the predicted probability of both classes.  
+
+```{r, make_xgb_predprob_on_viz_grid}
+predict(final_xgb_fit, new_data = viz_grid_df, type = 'prob') %>% 
+  glimpse()
+```
+
+Let's visualize the predicted probability of the `'good'` level in a figure of similar layout as the predicted classifications. A diverging color scale is used with a probability predictions less than 0.5 shown in red and probability predictions above 0.5 shown in blue. The default threshold of 0.5 is represented by white in the figure below. The surfaces below give context to the previously shown classifications which assume a threshold of 0.5. We see that the bottom two rows have probability predictions that are much greater than 0.5.  
+
+```{r, viz_xgb_predprob_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_xgb_fit, new_data = viz_grid_df, type='prob')) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_good)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  scale_fill_gradient2(low = 'red', mid = 'white', high = 'blue',
+                       midpoint = 0.5,
+                       limits = c(0, 1)) +
+  theme_bw()
+```
+
+Next, let's look at the classifications from the random forest model. The classifications are different from what we saw with XGBoost! This is especially true with the bottom two facet rows. Random forest "thinks" that half of each `V27` and `V5` surface in the bottom two facet rows correspond to the `'good'` level. Also, the left corner of facets correspond only to `'bad'` level classifications.  
+
+```{r, viz_rf_pred_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_rf_fit, new_data = viz_grid_df)) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_class)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw()
+```
+
+The random forest prediction probability surfaces are shown below. The probabilities are consistent with the classifications in the previous figure. The probability surfaces hightlight the differences between XGBoost and RF in this application, even though the two models have correlated performances during resampling.  
+
+```{r, viz_rf_predprob_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_rf_fit, new_data = viz_grid_df, type='prob')) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_good)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  scale_fill_gradient2(low = 'red', mid = 'white', high = 'blue',
+                       midpoint = 0.5,
+                       limits = c(0, 1)) +
+  theme_bw()
+```
+
+Lastly, let's examine the predictions from the best performing model, the SVM with PCA features. The classification surfaces for that model are given below. The tree-based methods showed classification boundaries that looked like straight lines. The tree-based methods divide the space in non-overlapping small regions. In each region the behavior is constant. These regions (or partitions) create the "stair step" like behavior of the tree-based method predictions. In constrast, the SVM with the Radial Basis Function (RBF) kernel is capable of smooth decision/classification boundaries. In face, the SVM RBF is ideally suited to working with such smooth boundaries. That is why we see circular like shapes separating the two levels of `Class` in the figure below.  
+
+```{r, viz_pca_rbf_pred_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_pca_rbf_fit, new_data = viz_grid_df)) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_class)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  ggthemes::scale_fill_colorblind() +
+  theme_bw()
+```
+
+The companion predicted probability surface for the PCA SVM model is given below. The surfaces are consistent with the previous classification figure. For this application, the probability trends from the PCA SVM model appear to be consistent with those from the random forest model, except the SVM provides smoother boundaries.  
+
+```{r, viz_pca_rbf_predprob_grid_surface}
+viz_grid_df %>% 
+  bind_cols(predict(final_pca_rbf_fit, new_data = viz_grid_df, type='prob')) %>% 
+  ggplot(mapping = aes(x = V27, y = V5)) +
+  geom_raster(mapping = aes(fill = .pred_good)) +
+  coord_equal() +
+  facet_grid(V3 ~ V7, labeller = "label_both") +
+  scale_fill_gradient2(low = 'red', mid = 'white', high = 'blue',
+                       midpoint = 0.5,
+                       limits = c(0, 1)) +
+  theme_bw()
+```
+
+### Conclusion
+
+This report demonstrated advanced preprocessing with PCA extracted features and saw how such features could improve the performance of models. The preprocessing step exploits the correlation structure to reduce dimensionality, which allows more complicated relationships to be identified. This can quite useful when the sample size is relatively low compared with the input dimensionality. We also saw how to examine multiple performance metrics in binary classification.  
+
+```{r, kill_cluster}
+stopCluster(cl)
+```
+
