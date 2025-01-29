@@ -282,9 +282,9 @@ You must create the input grid to support visualization by defining a variable `
 
 #### SOLUTION
 
-```{r, solution_02a, eval=FALSE}
+```{r, solution_02a, eval=TRUE}
 input_viz <- tibble::tibble(
-  x = 
+  x = seq(min(df_low_high$x), max(df_low_high$x), length.out = 201)
 )
 ```
 
@@ -304,49 +304,49 @@ You must now make predictions for each model! In lecture, we discussed the impor
 
 #### SOLUTION
 
-```{r, solution_02b_a, eval=FALSE}
+```{r, solution_02b_a, eval=TRUE}
 ### linear relationship (degree 1) predictions
-viz_trend_1 <- 
+viz_trend_1 <- predict(fit_lm_1, input_viz)
 ```
 
-```{r, solution_02b_b, eval=FALSE}
+```{r, solution_02b_b, eval=TRUE}
 ### quadratic relationship (degree 2) predictions
-viz_trend_2 <- 
+viz_trend_2 <- predict(fit_lm_2, input_viz)
 ```
 
-```{r, solution_02b_c, eval=FALSE}
+```{r, solution_02b_c, eval=TRUE}
 ### cubic relationship (degree 3) predictions
-viz_trend_3 <- 
+viz_trend_3 <- predict(fit_lm_3, input_viz)
 ```
 
-```{r, solution_02b_d, eval=FALSE}
+```{r, solution_02b_d, eval=TRUE}
 ### degree 4
-viz_trend_4 <- 
+viz_trend_4 <- predict(fit_lm_4, input_viz)
 ```
 
-```{r, solution_02b_e, eval=FALSE}
+```{r, solution_02b_e, eval=TRUE}
 ### degree 5
-viz_trend_5 <- 
+viz_trend_5 <- predict(fit_lm_5, input_viz)
 ```
 
-```{r, solution_02b_f, eval=FALSE}
+```{r, solution_02b_f, eval=TRUE}
 ### degree 6
-viz_trend_6 <- 
+viz_trend_6 <- predict(fit_lm_6, input_viz)
 ```
 
-```{r, solution_02b_g, eval=FALSE}
+```{r, solution_02b_g, eval=TRUE}
 ### degree 7
-viz_trend_7 <- 
+viz_trend_7 <- predict(fit_lm_7, input_viz)
 ```
 
-```{r, solution_02b_h, eval=FALSE}
+```{r, solution_02b_h, eval=TRUE}
 ### degree 8
-viz_trend_8 <- 
+viz_trend_8 <- predict(fit_lm_8, input_viz)
 ```
 
-```{r, solution_02b_i, eval=FALSE}
+```{r, solution_02b_i, eval=TRUE}
 ### degree 9
-viz_trend_9 <- 
+viz_trend_9 <- predict(fit_lm_9, input_viz)
 ```
 
 
@@ -362,10 +362,10 @@ Let's start by compiling the `df_viz_1` object which stores the prediction input
 
 #### SOLUTION
 
-```{r, solution_02c, eval=FALSE}
+```{r, solution_02c, eval=TRUE}
 df_viz_1 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_1,
+         poly_degree = 1)
 
 df_viz_1 %>% glimpse()
 ```
@@ -378,8 +378,10 @@ You can now visualize the predicted trend for the linear relationship! You will 
 
 #### SOLUTION
 
-```{r, solution_02d}
-### add your code here
+```{r, solution_02d, fig.align='center'}
+df_viz_1 %>%
+        ggplot(aes(x = x)) +
+        geom_line(aes(y = pred_trend)) 
 ```
 
 ### 2e)
@@ -393,7 +395,14 @@ Your completed graphic should display the original training set as red open squa
 #### SOLUTION
 
 ```{r, solution_02e}
-### add your code here
+df_viz_1 %>%
+        ggplot(aes(x = x)) +
+        geom_point(data = df_low_high, 
+                   aes(y = y), 
+                   shape = 0, 
+                   color = "red") +
+        geom_line(aes(y = pred_trend),
+                  size = 1)
 ```
 
 ### 2f)
@@ -406,67 +415,67 @@ You visualized the predicted trend associated with 1 model! You must now repeat 
 
 #### SOLUTION
 
-```{r, solution_02f_a, eval=FALSE}
+```{r, solution_02f_a, eval=TRUE}
 ### quadratic relationship (degree 2)
 df_viz_2 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_2,
+         poly_degree = 2)
 ```
 
 
-```{r, solution_02f_b, eval=FALSE}
+```{r, solution_02f_b, eval=TRUE}
 ### cubic relationship (degree 3)
 df_viz_3 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_3,
+         poly_degree = 3)
 ```
 
 
-```{r, solution_02f_c, eval=FALSE}
+```{r, solution_02f_c, eval=TRUE}
 ### degree 4
 df_viz_4 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_4,
+         poly_degree = 4)
 ```
 
 
-```{r, solution_02f_d, eval=FALSE}
+```{r, solution_02f_d, eval=TRUE}
 ### degree 5
 df_viz_5 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_5,
+         poly_degree = 5)
 ```
 
 
-```{r, solution_02f_e, eval=FALSE}
+```{r, solution_02f_e, eval=TRUE}
 ### degree 6
 df_viz_6 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_6,
+         poly_degree = 6)
 ```
 
 
-```{r, solution_02f_f, eval=FALSE}
+```{r, solution_02f_f, eval=TRUE}
 ### degree 7
 df_viz_7 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_7,
+         poly_degree = 7)
 ```
 
 
-```{r, solution_02f_g, eval=FALSE}
+```{r, solution_02f_g, eval=TRUE}
 ### degree 8
 df_viz_8 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_8,
+         poly_degree = 8)
 ```
 
 
-```{r, solution_02f_h, eval=FALSE}
+```{r, solution_02f_h, eval=TRUE}
 ### degree 9
 df_viz_9 <- input_viz %>% 
-  mutate(pred_trend = ,
-         poly_degree = )
+  mutate(pred_trend = viz_trend_9,
+         poly_degree = 9)
 ```
 
 
@@ -482,8 +491,9 @@ You can vertically concatenate or bind rows via the `bind_rows()` function from 
 
 #### SOLUTION
 
-```{r, solution_02g, eval=FALSE}
-df_viz_all <- 
+```{r, solution_02g, eval=TRUE}
+df_viz_all <- bind_rows(df_viz_1, df_viz_2, df_viz_3, df_viz_4, df_viz_5,
+                        df_viz_6, df_viz_7, df_viz_8, df_viz_9)
 ```
 
 ### 2h)
@@ -495,7 +505,10 @@ The `df_viz_all` is tidy. A column (variable) exists for each attribute associat
 #### SOLUTION
 
 ```{r, solution_02h}
-### add your code here
+df_viz_all %>%
+        ggplot(aes(x = x)) +
+        geom_line(aes(y = pred_trend)) +
+        facet_wrap(~ poly_degree)
 ```
 
 
@@ -508,7 +521,10 @@ It might be difficult to see what's going on within each facet. Let's "zoom" the
 #### SOLUTION
 
 ```{r, solution_02i}
-### add your code here
+df_viz_all %>%
+        ggplot(aes(x = x)) +
+        geom_line(aes(y = pred_trend)) +
+        facet_wrap(~ poly_degree, scales = "free_y")
 ```
 
 ### 2j)
@@ -520,16 +536,25 @@ Lastly, let's overlay the training set for additional context within each facet.
 #### SOLUTION
 
 ```{r, solution_02j}
-### add your code here
+df_viz_all %>%
+        ggplot(aes(x = x)) +
+        geom_point(data = df_low_high, 
+                   aes(y = y),
+                   shape = 0,
+                   color = "red") +
+        geom_line(aes(y = pred_trend)) +
+        facet_wrap(~ poly_degree, scales = "free_y")
 ```
 
 ### 2k)
 
 **You previously used two performance metrics to identify the best model. How would you describe the predictive trends associated with the best performing model? Do the trends seem consistent with the training set?**  
+The trend seem to be **very consistent** with the training data for polynomial order 9!
 
 #### SOLUTION
 
 What do you think?  
+This graph along with the other performance metrics clearly show that the 9th order polynomial shows the best results since it's very tied to the training data including the extreme value! This means that most probably this model will perform poorly on new data sets.
 
 ## Problem 03
 
