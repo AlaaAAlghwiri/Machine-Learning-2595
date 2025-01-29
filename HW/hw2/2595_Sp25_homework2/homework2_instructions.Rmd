@@ -1,0 +1,972 @@
+---
+title: "INFSCI 2595 Spring 2025 Homework 2"
+subtitle: "Assigned January 24, 2025; Due: January 31, 2024"
+author: "Alaa Alghwiri"
+date: "'r Sys.Date()'"
+output: html_document
+---
+
+## Overview
+
+This assignment is focused on fitting and comparing regression and classification models. Your task is to fit 9 polynomial models from degree 1 (linear relationship) to degree 9 (a 9th degree polynomial). You will interpret behavior through analyzing the coefficient estimates and by visualizing predictions from the models. You must select the best performing model and you will do so several different ways.
+
+The second part of this assignment (Problem 04-06) is focused on binary classification performance metrics. You will calculate the Accuracy, the confusion matrix, and a simple ROC curve manually on a simple example.
+
+**IMPORTANT**: You are working with 3 data sets in this assignment. This does not mean you must always have multiple "versions" of a data set to complete a machine learning application. This assignment is constructed so that you will see the relationship between sample size and noise on the ability to learn and identify appropriate levels of complexity. The data in this assignment are synthetic data created specifically for this assignment.  
+
+**IMPORTANT**: The RMarkdown assumes you have downloaded the 3 data sets (CSV files) to the same directory you saved the template Rmarkdown file. If you do not have the 3 CSV files in the correct location, the data will not be loaded correctly.  
+
+### IMPORTANT!!!
+
+Certain code chunks are created for you. Each code chunk has `eval=FALSE` set in the chunk options. You **MUST** change it to be `eval=TRUE` in order for the code chunks to be evaluated when rendering the document.  
+
+You are free to add more code chunks if you would like.  
+
+## Load packages
+
+The `tidyverse` is loaded in for you in the code chunk below. The visualization package, `ggplot2`, and the data manipulation package, `dplyr`, are part of the "larger" `tidyverse`.  
+
+```{r, load_tidyverse}
+library(tidyverse)
+```
+
+The `modelr` package is loaded in for you in the code chunk below. You may use functions from `modelr` to calculate performance metrics for your models.  
+
+```{r, load_modelr}
+library(modelr)
+```
+
+
+This assignment also uses functions from the `coefplot` package and uses the major functions from the `caret` package. Those packages will be loaded when necessary later in the assignment.  
+
+## Problem 01
+
+A data set is loaded for you in the code chunk below. The data are assigned to the `df_low_high` object. The naming convention of this variable represents that the data were generated with low sample size and high noise. Thus, you will begin your predictive modeling or *supervised learning* task with data that are known to be noisy.  
+
+```{r, read_low_high_data}
+path_low_high <- 'hw2_lowsize_highnoise.csv'
+
+df_low_high <- readr::read_csv(path_low_high, col_names = TRUE)
+```
+
+A glimpse of the data are provided for you below. The variable `x` is the input and the variable `y` is the response. Your task is to predict `y` as a function of `x` using various polynomial models. As stated before, the data in Problem 01 are the "noisy" data.  
+
+```{r, glimpse_low_high_data}
+df_low_high %>% glimpse()
+```
+
+### 1a)
+
+It is always best to explore the data before fitting models. For this assignment, all you are required to do is visualize the relationship between the output and input with a scatter plot.  
+
+**Use ggplot2 to create a scatter plot between the input, `x`, and the response, `y`. The scatter plot is created with the `geom_point()` geom. Manually set the marker size to be 3 within the `geom_point()` geom.**  
+
+**Does the relationship between the input and response appear to be linear or non-linear?**  
+
+#### SOLUTION
+
+```{r, solution_01a}
+df_low_high %>%
+        ggplot(aes(x = x,
+                   y = y)) +
+        geom_point(size = 3)
+```
+
+**Is the relationship linear or non-linear?**  
+The relationship between x and y doesn't seem to be linear!
+Over the interval x [-3,0], it seems to have a negative linear relationship. This relationship **flips** for x values above 0 with extreme y value at x approximately = 2.6. This is most probably a behavior of a quadratic or cubic relationship between x and y. Will see!
+
+### 1b)
+
+It's time fit the models! You must fit 9 models using the `lm()` function and the formula interface. You used both the `lm()` function and the formula interface in the previous assignment. However, this time you must specify the appropriate polynomial features. You are not allowed to use any functions to generate the polynomials. You **MUST** manually type each polynomial feature in the formulas!  
+
+**Complete the code chunks below by calling the `lm()` function with the appropriate formula and correctly specifying the `data` argument. The result are assigned to variable names defined for you in each of the code chunks. The variable names and the comment within each code chunk specifies the polynomial degree you should use.**  
+
+**You must use the complete data for fitting the models.**  
+
+#### SOLUTION
+
+
+```{r, solution_01b_a, eval=TRUE}
+### linear relationship (degree 1)
+fit_lm_1 <- lm(formula = y ~ x, 
+               data = df_low_high)
+```
+
+
+```{r, solution_01b_b, eval=TRUE}
+### quadratic relationship (degree 2)
+fit_lm_2 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2))
+```
+
+
+```{r, solution_01b_c, eval=TRUE}
+### cubic relationship (degree 3)
+fit_lm_3 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3))
+```
+
+
+```{r, solution_01b_d, eval=TRUE}
+### degree 4
+fit_lm_4 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4))
+```
+
+
+```{r, solution_01b_e, eval=TRUE}
+### degree 5
+fit_lm_5 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5))
+```
+
+
+```{r, solution_01b_f, eval=TRUE}
+### degree 6
+fit_lm_6 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                       I(x^5) + I(x^6))
+```
+
+
+```{r, solution_01b_g, eval=TRUE}
+### degree 7
+fit_lm_7 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                       I(x^5) + I(x^6) + I(x^7))
+```
+
+
+```{r, solution_01b_h, eval=TRUE}
+### degree 8
+fit_lm_8 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                       I(x^5) + I(x^6) + I(x^7) + I(x^8))
+```
+
+
+```{r, solution_01b_i, eval=TRUE}
+### degree 9
+fit_lm_9 <- lm(data = df_low_high, 
+               formula = y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                       I(x^5) + I(x^6) + I(x^7) + I(x^8) + 
+                       I(x^9))
+```
+
+
+### 1c)
+
+You fit 9 regression models, it's time to pick the best one! You will initially make your selection based on the training set performance.  
+
+**Calculate the training set RMSE for each model. It is up to you as to how to organize the RMSE values and display the results. Bare minimum, you must display the RMSE for each model. You are only allowed to use functions from lecture.**  
+
+#### SOLUTION
+
+```{r, solution_01c}
+rmse_tibble <- tibble(`Polynomial Order` = seq(1, 9, 1),
+                      RMSE = c(rmse(fit_lm_1, df_low_high),
+                      rmse(fit_lm_2, df_low_high),
+                      rmse(fit_lm_3, df_low_high),
+                      rmse(fit_lm_4, df_low_high),
+                      rmse(fit_lm_5, df_low_high),
+                      rmse(fit_lm_6, df_low_high),
+                      rmse(fit_lm_7, df_low_high),
+                      rmse(fit_lm_8, df_low_high),
+                      rmse(fit_lm_9, df_low_high)))
+
+rmse_tibble %>%
+        ggplot(aes(x = `Polynomial Order`,
+                   y = RMSE)) +
+        geom_point(size = 2) +
+        geom_line() + 
+        scale_x_continuous(breaks = 1:10) +
+        scale_y_continuous(breaks = 1:10) +
+        geom_text(aes(label = round(RMSE, 2),
+                   color = `Polynomial Order`),
+                  nudge_x = 0.2,
+                  nudge_y = 0.4,
+                  size = 5)
+```
+
+### 1d)
+
+There are many different performance metrics we can use to compare models. For this problem, we will consider R-squared in addition to the RMSE.  
+
+**Calculate the training set R-squared for each model. It is up to you as to how to organize the R-squared values and display the results. Bare minimum, you must display the R-squared for each model. You are only allowed to use functions from lecture.**  
+
+#### SOLUTION
+
+```{r, solution_01d}
+rsquare_tibble <- tibble(`Polynomial Order` = seq(1, 9, 1),
+                      RSQUARE = c(rsquare(fit_lm_1, df_low_high),
+                      rsquare(fit_lm_2, df_low_high),
+                      rsquare(fit_lm_3, df_low_high),
+                      rsquare(fit_lm_4, df_low_high),
+                      rsquare(fit_lm_5, df_low_high),
+                      rsquare(fit_lm_6, df_low_high),
+                      rsquare(fit_lm_7, df_low_high),
+                      rsquare(fit_lm_8, df_low_high),
+                      rsquare(fit_lm_9, df_low_high)))
+
+rsquare_tibble %>%
+        ggplot(aes(x = `Polynomial Order`,
+                   y = RSQUARE)) +
+        geom_point(size = 2) +
+        geom_line() + 
+        scale_x_continuous(breaks = 1:10) +
+        scale_y_continuous(breaks = 1:10) +
+        geom_text(aes(label = round(RSQUARE, 2),
+                   color = `Polynomial Order`),
+                  nudge_x = 0.2,
+                  nudge_y = 0.4,
+                  size = 5)
+```
+
+### 1e)
+
+**Which model is the best according to the training set performance metrics? Why did you make the selection that you did? Do the two performance metrics agree on the best model?**  
+
+Based **only** on the training set performance metrics, polynomial order 9 seems to be the best model. The reason it seems so, is that it has the lowest RMSE value and the highest R^2 value tie with polynomial order 8. Both performance metrics agree that polynomial 9 is the best here. Apparently, polynomial order 1 is out of this candidates list as I have see a drastic decrease in RMSE and increase in R^2 values once I tried the polynomial order 2 and the rest. 
+
+#### SOLUTION
+
+What do you think?  
+At this point, we can't just rely on the results that we've got from only the training data. We used the full data set to train our models without having any hold-out data for testing purposes. Also, we haven't checked the confidence intervals for the estimates that tell us about significant variables. Moreover, there is extreme value that severely affect the model fit. One of the most important pre-processing steps especially for linear models is to check the reason behind extreme values and then either correcting/imputing or eliminating them. Correcting/imputing/eliminating that wrong value would be a game changer for all models fitted in here. Finally, the model that seems to perform best for this data (polynomial order 9) is complex with lots of parameters and this will lead to over fitting (a model that is only good for this data and will perform purely once we test it using new data set)
+
+### 1f)
+
+Let's dive deeper into a few of the models. You will visualize the coefficient summaries for three models to examine the number of statistically significant features and to get an idea of the uncertainty on the coefficients. Regardless of your answer to Problem 1e), you must examine the coefficients for the quadratic model (degree 2), the 6th degree model, and the 9th degree model.  
+
+You used the `coefplot()` function from the `coefplot` package to visualize model coefficient summaries in the previous assignment. You could call `coefplot::coefplot()` three different times, one for each model. However, the `coefplot` package has a useful "helper" function dedicated to visualizing the coefficients across multiple models. This function is named `coefplot::multiplot()`. The `coefplot::multiplot()` syntax is similar to `coefplot::coefplot()`. You pass in the model objects as arguments to the function. You must separate each model with a comman, `,`, within the function call. The `coefplot::multiplot()` function takes care of everything for you.  
+
+**Visualize the coefficient summaries for the quadratic (degree 2), 6th degree, and 9th degree polynomial models using the `coefplot::multiplot()` function.**  
+
+**You do NOT need to load the `coefplot` package. The `::` operator allows accessing the function `multiplot()` from within the `coefplot` library.**  
+
+#### SOLUTION
+
+```{r, solution_01f, fig.height= 10, fig.width= 10, fig.align='center'}
+coefplot::multiplot(fit_lm_2, fit_lm_6, fit_lm_9)
+
+```
+
+### 1g)
+
+Some of the coefficients are present in all three models displayed in the figure from Problem 1f), while a few of the coefficients are only present in one of the models. Let's look closely at the previous figure to try and interpret the model behavior.  
+
+**Are the coefficient estimates similar for those coefficients present in at least 2 of the models visualized in the previous figure?**  
+For the intercept they are all close to each others with varying confidence intervals. for x and x^2 coefficient, they are different in value and sign. As the complexity increases (polynomial order increases) the uncertainty of the estimates increase.
+
+**Is the level or amount of uncertainty associated with the coefficients consistent across the three models?**  
+Uncertainty is not consistent across all visualized models. most of the coefficients of polynomial order 6 and 9 has the zero value as part of their confidence interval. Eventually, this means that most of the coefficients for these modes are not statistically significant.
+
+#### SOLUTION
+
+What do you think?  
+I think that we will need to first fix the extreme value issue if it's extreme as it will change all the models. Rather than picking the best model using only the training data, I will use a meaningful cross-validation design for this small data set so that i end up with a robust performance metrics to lead me to the best model based on this data. Model complexity will be also one of the factors that I will consider in selecting the best model along with other regression performance metrics. 
+
+## Problem 02
+
+We discussed in lecture the importance of visualizing predictive model trends. This is an important and useful way of interpreting model behavior because it allows us to "see" what the model "thinks" happens at input values **not** present in the original training set. Creating such visualizations requires creating a new data set. Such data sets can require careful planning when there are dozens to hundreds of inputs. However, our present application has a single input and thus it is easy to define a meaningful *input grid* to support visualizing trends.  
+
+### 2a)
+
+You must create the input grid to support visualization by defining a variable `x` within a data.frame (tibble) that consists of 201 evenly spaced points between the training set minimum and maximum values.  
+
+**The code chunk below is started for you. The `tibble::tibble()` function defines a tibble object. The data variable `x` is assigned within that tibble. You must complete that line of code by using an appropriate function which creates a sequence of values from a lower bound to an upper bound. You must use 201 evenly spaced points.**  
+
+**The lower bound must equal the input training set minimum value and the upper bound must equal the input training set maximum value.**  
+
+*HINT*: The lecture slides shows how to create this kind of object...  
+
+#### SOLUTION
+
+```{r, solution_02a, eval=FALSE}
+input_viz <- tibble::tibble(
+  x = 
+)
+```
+
+If you created `input_viz` correctly, it should have 201 rows. The code chunk below checks the number of rows for you.  
+
+```{r, solution_02a_b, eval=FALSE}
+input_viz %>% nrow()
+```
+
+### 2b)
+
+You must now make predictions for each model! In lecture, we discussed the importance including two types of uncertainty when we make predictions. However, since we are at the beginning of the semester, you are only responsible for making predictions of the **trend** or **average response**. Your returned predictions will therefore consist of numeric vectors.  
+
+**Complete the code chunks below by calling the appropriate function for making predictions for each model. The returned predictions are assigned must be assigned to the variables named in the code chunk below. The comments and the variable names specify which model should be used.**  
+
+*HINT*: Pay close attention to which data set you use when making the predictions...  
+
+#### SOLUTION
+
+```{r, solution_02b_a, eval=FALSE}
+### linear relationship (degree 1) predictions
+viz_trend_1 <- 
+```
+
+```{r, solution_02b_b, eval=FALSE}
+### quadratic relationship (degree 2) predictions
+viz_trend_2 <- 
+```
+
+```{r, solution_02b_c, eval=FALSE}
+### cubic relationship (degree 3) predictions
+viz_trend_3 <- 
+```
+
+```{r, solution_02b_d, eval=FALSE}
+### degree 4
+viz_trend_4 <- 
+```
+
+```{r, solution_02b_e, eval=FALSE}
+### degree 5
+viz_trend_5 <- 
+```
+
+```{r, solution_02b_f, eval=FALSE}
+### degree 6
+viz_trend_6 <- 
+```
+
+```{r, solution_02b_g, eval=FALSE}
+### degree 7
+viz_trend_7 <- 
+```
+
+```{r, solution_02b_h, eval=FALSE}
+### degree 8
+viz_trend_8 <- 
+```
+
+```{r, solution_02b_i, eval=FALSE}
+### degree 9
+viz_trend_9 <- 
+```
+
+
+### 2c)
+
+Let's manipulate the data before visualizing the predictions. This way we can organize the data into a "tidy format" to support proper visualization strategies.  
+
+The code chunk below is started for you. The `input_viz` object is piped into the `mutate()` function where two data variables are assigned, `pred_trend` and `poly_degree`. The predictions made in the previous question will be assigned to the `pred_trend` data variable. You will manually assign the `poly_degree` variable for the model which made the predictions. Please note that you only need to provide a scalar value for `poly_degree`. The `mutate()` function will make sure to broadcast that scalar value to all rows in the tibble.  
+
+Let's start by compiling the `df_viz_1` object which stores the prediction input and predicted trend for the linear relationship model.  
+
+**Complete the code chunk below by assigning the linear relationship model's predicted trend to the `pred_trend` data variable and assign the value `1` to the `poly_degree` data variable. The `df_viz_1` object is assigned for you and a glimpse is displayed to the screen. If you created the `df_viz_1` object correctly it should consist of 3 variable (columns) and 201 rows.**  
+
+#### SOLUTION
+
+```{r, solution_02c, eval=FALSE}
+df_viz_1 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+
+df_viz_1 %>% glimpse()
+```
+
+### 2d)
+
+You can now visualize the predicted trend for the linear relationship! You will use a line to visualize the trend so that way the smooth sequential trend is visualized.  
+
+**Pass the `df_viz_1` tibble into `ggplot()`. Map the `x` aesthetic to the `x` variable within the "parent" `ggplot()` call. Add the `geom_line()` layer and map the `y` aesthetic to the `pred_trend` variable within the `geom_line()` geom. Thus, you should NOT map both `x` and `y` aesthetics in the "parent" `ggplot()` call.**  
+
+#### SOLUTION
+
+```{r, solution_02d}
+### add your code here
+```
+
+### 2e)
+
+Let's add further context to the predictive trend visualization by overlaying the original training set scatter plot. We thus need to create a graphic that uses two different data sets. This is ok! Each `geom_*` function has a `data` argument. By default, the `geom_*` function, (such as `geom_point()` or `geom_line()`) inherits the `data` provided to the "parent" `ggplot()` call. However, we can override this behavior by manually specifying a new data set to the `data` argument within the `geom_*` layer! This effectively allows us to show behavior coming from multiple data sets.  
+
+**Visualize the predicted trend associated with the linear relationship again. Pass the `df_viz_1` tibble into `ggplot()`. Map the `x` aesthetic to the `x` variable within the "parent" `ggplot()` call. However, before adding `geom_line()` add `geom_point()` where you specify the `data` argument in `geom_point()` to be `df_low_high`. Map the `y` aesthetic within `geom_point()` to the `y` variable and manually assign the marker `shape` to 0 and the marker `color` to `'red'`. Add the `geom_line()` layer where you map the `y` aesthetic to the `pred_trend` variable and manually assign the line `size` to 1.**  
+
+Your completed graphic should display the original training set as red open squares and the predicted trend as a black line.  
+
+#### SOLUTION
+
+```{r, solution_02e}
+### add your code here
+```
+
+### 2f)
+
+You visualized the predicted trend associated with 1 model! You must now repeat these steps for the remaining 8 models. You will start by properly organizing the predictive trends from the other 8 models into their own tibbles.  
+
+**Complete the code chunks below. You must assign the predictive trends to the `pred_trend` data variable and assign the correct value for the `poly_degree` data variable. The comments and variable names state the models associated with each code chunk.**  
+
+**NOTE**: This is NOT the most efficient way to properly organize the predictions. More streamlined approaches make use of **functional programming** techniques to create one properly organized and "tidy" data set in just a few lines of code. We will learn how to do that later in the semester. For now though, we will go through the tedious way!  
+
+#### SOLUTION
+
+```{r, solution_02f_a, eval=FALSE}
+### quadratic relationship (degree 2)
+df_viz_2 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_b, eval=FALSE}
+### cubic relationship (degree 3)
+df_viz_3 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_c, eval=FALSE}
+### degree 4
+df_viz_4 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_d, eval=FALSE}
+### degree 5
+df_viz_5 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_e, eval=FALSE}
+### degree 6
+df_viz_6 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_f, eval=FALSE}
+### degree 7
+df_viz_7 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_g, eval=FALSE}
+### degree 8
+df_viz_8 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+```{r, solution_02f_h, eval=FALSE}
+### degree 9
+df_viz_9 <- input_viz %>% 
+  mutate(pred_trend = ,
+         poly_degree = )
+```
+
+
+### 2g)
+
+Do not worry, you will not create separate plots for each model's predictions! Instead, you will concatenate the 9 tibbles together into a single tibble! You will "stack" the tibbles vertically by *binding the rows* together. This operation works because all 9 `df_viz_*` objects have the same columns! A little planning goes a long way!  
+
+You can vertically concatenate or bind rows via the `bind_rows()` function from `dplyr`. You must provide all data.frames (tibbles) you wish to bind together as arguments to `bind_rows()`. Each data set (argument to the function) must be separated by a comma, `,`. You do **not** need to worry about the `.id` argument to `bind_rows()` for this current operation.  
+
+**The code chunk below creates a variable `df_viz_all`. You must use the `bind_rows()` function to bind or stack together all 9 visualization tibbles.**  
+
+*HINT*: If you created the `df_viz_all` object correctly, it should consist of 1809 rows and 3 columns.  
+
+#### SOLUTION
+
+```{r, solution_02g, eval=FALSE}
+df_viz_all <- 
+```
+
+### 2h)
+
+The `df_viz_all` is tidy. A column (variable) exists for each attribute associated with the data. A variable exists for the input, `x`, a variable exists for the predicted trend, `pred_trend`, and an identifier exists which identifies which model made the predictions, `poly_degree`. You will now use all variables to create a faceted figure showing the predictions associated with each model.  
+
+**Pipe the `df_viz_all` object to `ggplot()` and map the `x` aesthetic to the `x` variable within the "parent" `ggplot()` call. Add the `geom_line()` layer and map the `y` aesthetic to the `pred_trend` variable within `geom_line()`. Add the facets via the `facet_wrap()` function. The facets must be a function of the `poly_degree` variable.**  
+
+#### SOLUTION
+
+```{r, solution_02h}
+### add your code here
+```
+
+
+### 2i)
+
+It might be difficult to see what's going on within each facet. Let's "zoom" the y-axis within each facet to give a better picture of the trend associated with each model.  
+
+**Repeat the visualization from the previous problem, but this time set `scales = 'free_y'` within the `facet_wrap()` function.**  
+
+#### SOLUTION
+
+```{r, solution_02i}
+### add your code here
+```
+
+### 2j)
+
+Lastly, let's overlay the training set for additional context within each facet. To do so, you must override the `data` argument within the additional `geom_point()` layer, just as you did in Problem 2e).  
+
+**Repeat the visualization from the previous problem, however this time include `geom_point()` in between the "parent" `ggplot()` call and the `geom_line()` layer. You must override the `data` argument within this `geom_point()` layer by assigning `data` to `df_low_high`. You must map the `y` aesthetic directly within `geom_point()` to the `y` variable. Manually specify the marker `shape` to be `0` and the marker `color` to be `'red'` within `geom_point()`.**  
+
+#### SOLUTION
+
+```{r, solution_02j}
+### add your code here
+```
+
+### 2k)
+
+**You previously used two performance metrics to identify the best model. How would you describe the predictive trends associated with the best performing model? Do the trends seem consistent with the training set?**  
+
+#### SOLUTION
+
+What do you think?  
+
+## Problem 03
+
+You have fit the 9 polynomials and assessed their performance multiple ways. It's time to now use **resampling** to understand the reliability of your performance assessments. You will specifically use the `caret` package to manage all aspects of data splitting, training, and evaluating the models. If you do not have the `caret` package downloaded and installed please do so before proceeding. You only need to download and install `caret` once.  
+
+### 3a)
+
+**Load the `caret` library into the environment with the `library()` function.**  
+
+#### SOLUTION
+
+```{r, solution_03a}
+### add your code here
+```
+
+### 3b)
+
+The resampling scheme is specified by the `trainControl()` function in `caret`. The type of scheme is controlled by the `method` argument. For k-fold cross-validation, the `method` argument must equal `'cv'` and the number of folds is controlled by the `number` argument. We could instruct `caret` to use repeated cross-validation by specifying `method` to be `'repeatedcv'` and including the number of repeats via the `repeates` argument. However, we will follow the process consistent with lecture and use 5-fold cross-validation for this assignment.  
+
+**Specify the resampling scheme by completing the code chunk below. Assign the result of the `trainControl()` function to the `my_ctrl` variable.**  
+
+**How many times will a model be trained and tested using the desired resampling scheme?**  
+
+#### SOLUTION
+
+```{r, solution_03b, eval=FALSE}
+my_ctrl <- 
+```
+
+How many times will an individual model be trained and tested?  
+
+### 3c)
+
+The `caret` package requires that we specify a primary performance metric of interest, even though it will calculate several performance metrics for us. Please remember that the response is a continuous variable.  
+
+**You must select a primary performance metric to use to compare the models. Specify an appropriate metric to use for this modeling task. Choices must be written as a string and assigned to the `my_metric` variable. Possible choices are "Accuracy", "RMSE", "Kappa", "Rsquared", "MAE", "ROC". Why did you make the the choice that you did?**  
+
+*NOTE*: Not all of the listed performance metrics above are relevant to regression problems!  
+
+```{r, solution_3c, eval=FALSE}
+my_metric <- 
+```
+
+Why did you make your choice?  
+
+### 3d)
+
+You will now go through training and evaluating the 9 polynomial models with the `train()` function from `caret`. You will use the formula interface to specify the model relationship. You must fit a linear (first order polynomial), quadratic (second order polynomial), cubic (third order polynomial), and so on up to and including a 9th order polynomial just as you did before. The difference is that you are not calling the `lm()` function directly. Instead, the `caret` package will manage the fitting process for you.  
+
+Please note that you will use the entire data set for training and evaluating with resampling. The `caret` package will manage the data splitting for you.  
+
+**You must specify the `method` argument in the `train()` function to be `"lm"`. You must specify the `metric` argument to be `my_metric` that you selected in Problem 3c). You must specify the `trControl` argument to be `my_ctrl` that you specified in Problem 3b). Don't forget to set the `data` argument to be `df_low_high`!**  
+
+**The variable names below and comments are used to tell you which polynomial order you should assign to which object.**  
+
+*NOTE*: The models are trained in separate code chunks that way you can run each model apart from the others. The `caret` object is displayed to the screen for you within each code chunk. This will make it obvious when each model completes the resampling process.  
+
+#### SOLUTION
+
+```{r, solution_03d_a, eval=FALSE}
+### linear relationship (degree 1)
+set.seed(2001)
+mod_lowhigh_1 <- train()
+
+mod_lowhigh_1
+```
+
+
+```{r, solution_03d_b, eval=FALSE}
+### quadratic relationship (degree 2)
+set.seed(2001)
+mod_lowhigh_2 <- train()
+
+mod_lowhigh_2
+```
+
+
+```{r, solution_03d_c, eval=FALSE}
+### cubic relationship (degree 3)
+set.seed(2001)
+mod_lowhigh_3 <- train()
+
+mod_lowhigh_3
+```
+
+
+```{r, solution_03d_d, eval=FALSE}
+### degree 4
+set.seed(2001)
+mod_lowhigh_4 <- train()
+
+mod_lowhigh_4
+```
+
+
+```{r, solution_03d_e, eval=FALSE}
+### degree 5
+set.seed(2001)
+mod_lowhigh_5 <- train()
+
+mod_lowhigh_5
+```
+
+
+```{r, solution_03d_f, eval=FALSE}
+### degree 6
+set.seed(2001)
+mod_lowhigh_6 <- train()
+
+mod_lowhigh_6
+```
+
+
+```{r, solution_03d_g, eval=FALSE}
+### degree 7
+set.seed(2001)
+mod_lowhigh_7 <- train()
+
+mod_lowhigh_7
+```
+
+
+```{r, solution_03d_h, eval=FALSE}
+### degree 8
+set.seed(2001)
+mod_lowhigh_8 <- train()
+
+mod_lowhigh_8
+```
+
+
+```{r, solution_03d_i, eval=FALSE}
+### degree 9
+set.seed(2001)
+mod_lowhigh_9 <- train()
+
+mod_lowhigh_9
+```
+
+### 3e)
+
+The code chunk below compiles all of the model training results for you. The `lowhigh_results` object can be used to compare the models through tables and visualizations.  
+
+```{r, assemble_resampling_lowhigh, eval=FALSE}
+lowhigh_results = resamples(list(fit_01 = mod_lowhigh_1,
+                                 fit_02 = mod_lowhigh_2,
+                                 fit_03 = mod_lowhigh_3,
+                                 fit_04 = mod_lowhigh_4,
+                                 fit_05 = mod_lowhigh_5,
+                                 fit_06 = mod_lowhigh_6,
+                                 fit_07 = mod_lowhigh_7,
+                                 fit_08 = mod_lowhigh_8,
+                                 fit_09 = mod_lowhigh_9))
+```
+
+The `caret` package provides default summary and plot methods which rank the models based on their resampling hold-out results. The `summary()` function prints a table like object which summarizes the resampling results. The `dotplot()` function creates a dot plot with confidence intervals on the resampling performance metrics.  
+
+**You must display the summary table using the `summary()` function for the resampling results and visualize the resampling results using the `dotplot()` function. In both the `summary()` and `dotplot()` functions, you must specify the `metric` argument to be primary performance metric that you specified previously.**  
+
+**Which model is the best according to the resampling results?**  
+
+#### SOLUTION
+
+```{r, solution_03e_a}
+### summary for your performance metric
+```
+
+
+```{r, solution_03e_b}
+### dotplot for your performance metric
+```
+
+Which model is the best?  
+
+### 3f)
+
+The `mod_lowhigh_*` variables are `caret` model objects and are essentially lists. Each object, `mod_lowhigh_1` through `mod_lowhigh_9` consists of numerous fields which can be accessed via the dollar sign operator, `$`. One such field, `$finalModel`, provides access to the underlying `lm()` model object associated with the **final fit**. Thus, even though `mod_lowhigh_1` is a `caret` object the field `mod_lowhigh_1$finalModel` is an `lm()` object just like the `fit_lm_1` object you fit at the beginning of the assignment. We can apply functions to help interpret the model behavior just as we did previously.  
+
+**You must compare the coefficients between the top 3 models identified by the resampling procedure using the `coefplot::multiplot()` function.**  
+
+**Are the coefficient estimates similar for those coefficients present in at least 2 of the models visualized in the previous figure?**  
+
+**Is the level or amount of uncertainty associated with the coefficients consistent across the three models?**  
+
+#### SOLUTION
+
+```{r, solution_03f}
+### your code here
+```
+
+
+## Problem 04
+
+The code chunk below reads in a data set that you will work with in Problems 4, 5 and 6. A glimpse is printed for you which shows three variables, an input `x`, a model predicted event probability, `pred_prob`, and the observed output class, `obs_class`. A binary classifier has already been trained for you. That model's predicted probability (`pred_prob`) is provided with the observed binary outcome (`obs_class`). You will use this data set to get experience with binary classification performance metrics.  
+
+```{r, read_binary_class_data}
+example_data_path <- "hw2_example_binary_data.csv"
+
+model_pred_df <- readr::read_csv(example_data_path, col_names = TRUE)
+```
+
+```{r, glimpse_read_in_data}
+model_pred_df %>% glimpse()
+```
+
+### 4a)
+
+**Pipe the `model_pred_df` data set into the `count()` function to display the number of unique values of the `obs_class` variable.**  
+
+#### SOLUTION
+
+```{r, solution_04a}
+### your code here
+```
+
+### 4b)
+
+You should see that one of the values of `obs_class` is the event of interest and is named `"event"`.  
+
+**Use the `mean()` function to determine the fraction (or proportion) of the observations that correspond to the event of interest. Is the data set a balanced data set?**  
+
+#### SOLUTION
+
+```{r, solution_04b}
+### your code here
+```
+
+Is the data set balanced?  
+
+### 4c)
+
+In lecture we discussed that regardless of the labels or classes associated with the binary response, we can encode the outcome as `y = 1` if the `"event"` is observed and `y = 0` if the `"non_event"` is observed. You will encode the output with this 0/1 encoding.  
+
+The `ifelse()` function can help you perform this operation. The `ifelse()` function is a one-line if-statement which operates similar to the IF function in Excel. The basic syntax is:  
+
+`ifelse(<conditional statement to check>, <value if TRUE>, <value if FALSE>)`  
+
+Thus, the user must specify a condition to check as the first argument to the `ifelse()` function. The second argument is the value to return if the conditional statement is TRUE, and the second argument is the value to return if the conditional statement is FALSE.  
+
+You can use the `ifelse()` statement within a `mutate()` call to create a new column in the `model_pred_df` data set.  
+
+The code chunk below provides an example using the first 10 rows from the `iris` data set which is loaded with base R. The `Sepal.Width` variable is compared to a value of 3.5. If `Sepal.Width` is greater than 3.5 the new variable, `width_factor`, is set equal to `"greater than"`. However, if it is less than 3.5 the new variable is set to `"less than"`.  
+
+```{r, show_ifelse_iris}
+iris %>% 
+  slice(1:10) %>% 
+  select(starts_with("Sepal"), Species) %>% 
+  mutate(width_factor = ifelse(Sepal.Width > 3.5, 
+                               "greater than", 
+                               "less than"))
+```
+
+You will use the `ifelse()` function combined with `mutate()` to add a column to the `model_pred_df` tibble.  
+
+**Pipe `model_pred_df` into a `mutate()` call in order to create a new column (variable) named `y`. The new variable, `y`, will equal the result of the `ifelse()` function. The conditional statement will be if `obs_class` is equal to the `"event"`. If TRUE assign `y` to equal the value 1. If FALSE, assign `y` to equal the value 0. Assign the result to the variable `model_pred_df` which overwrites the existing value.**  
+
+#### SOLUTION
+
+```{r, solution_04c, eval=FALSE}
+model_pred_df <- 
+```
+
+### 4d)
+
+You will now visualize the observed binary outcome as encoded by 0 and 1.  
+
+**Pipe the `model_pred_df` object into `ggplot()`. Create a scatter plot between the encoded output `y` and the input `x`. Set the marker `size` to be 3.5 and the transparency (`alpha`) to be 0.5.**  
+
+#### SOLUTION
+
+```{r, solution_04d}
+### your code here
+```
+
+### 4e)
+
+The `model_pred_df` includes a column (variable) for a model predicted event probability.  
+
+**Use the `summary()` function to confirm that the lower an upper bounds on `pred_prob` are in fact between 0 and 1.**  
+
+#### SOLUTION
+
+```{r, solution_04e}
+### your code here
+```
+
+### 4f)
+
+With the binary outcome encoded as 0/1 within the `y` variable we can overlay the model predicted probability on top of the observed binary response.  
+
+**Use a `geom_line()` to plot the predicted event probability, `pred_prob`, with respect to the input `x`. Set the line `color` to be `"red"` within the `geom_line()` call. Overlay the binary response with the encoded response `y` as a scatter plot with `geom_point()`. Use the same marker size and transparency that you used for Problem 4d).**  
+
+#### SOLUTION
+
+```{r, solution_04f}
+### your code here
+```
+
+
+### 4g)
+
+**Does the observed binary response "follow" the model predicted probability?**  
+
+#### SOLUTION
+
+What do you think?  
+
+## Problem 05
+
+As you can see from the `model_pred_df` tibble, we have a model predicted probability but we do not have a corresponding classification.  
+
+### 5a)
+
+In order to classify our predictions we must compare the predicted probability against a threshold. You will use `ifelse()` combined with `mutate()` to create a new variable `pred_class`. If the predicted probability, `pred_prob`, is greater than the threshold set the predicted class equal to `"event"`. If the predicted probability, `pred_prob`, is less than the threshold set the predicted class equal to the `"non_event"`.  
+
+**Use a threshold value of 0.5 and create the new variable `pred_class` such that the classification is `"event"` if the predicted probability is greater than the threshold and `"non_event"` if the predicted probability is less than the threshold. Assign the result to the new object `model_class_0.5`.**  
+
+#### SOLUTION
+
+```{r, solution_05a, eval=FALSE}
+model_class_0.5 <- 
+```
+
+### 5b)
+
+You should now have a tibble that has a model classification and the observed binary outcome.  
+
+**Calculate the Accuracy, the fraction of observations where the model classification is correct.**  
+
+#### SOLUTION
+
+```{r, solution_05b}
+### your code here
+```
+
+### 5c)
+
+We discussed in lecture how there are additional metrics we can consider with binary classification. Specifically, we can consider how a classification is correct, and how a classification is incorrect. A simple way to determine the counts per combination of `pred_class` and `obs_class` is with the `count()` function.  
+
+**Pipe `model_class_0.5` into `count()` with `pred_class` as the first argument and `obs_class` as the second argument. You should see 4 combinations and the number of rows in the data set associated with each combination (the number or count is given by the `n` variable).**  
+
+**How many observations are associated with False-Positives? How many observations are associated with True-Negatives?**  
+
+#### SOLUTION
+
+```{r, solution_054c}
+### your code here
+```
+
+your response here.  
+
+### 5d)
+
+**You will now calculate the Sensitivity and False Positive Rate (FPR) associated with the model predicted classifications based on a threshold of 0.5. This question is left open ended. It is your choice as to how you calculate the Sensitivity and FPR. However, you CANNOT use an existing function from a library which performs the calculations automatically for you. You are permitted to use `dplyr` data manipulation functions. Include as many code chunks as you feel are necessary.**  
+
+#### SOLUTION
+
+```{r, solution_05d}
+### add more code chunks if you need to
+```
+
+### 5e)
+
+We also discussed the ROC curve in addition to the confusion matrix. You will not have to calculate the ROC curve for a large number of threshold values. You will go through several calculations in order to demonstrate an understanding of the steps necessary to create an ROC curve.  
+
+The first action you must perform is to make classifications based on a different threshold compared to the default value of 0.5, which we used previously.  
+
+**Pipe the `model_pred_df` tibble into a `mutate()` function again, but this time determine the classifications based on a threshold value of 0.7 instead of 0.5. Assign the result to the object `model_class_0.7`.**  
+
+#### SOLUTION
+
+```{r, solution_05e, eval=FALSE}
+model_class_0.7 <- 
+```
+
+### 5f)
+
+**Perform the same action as in Problem 5e), but this time for a threshold value of 0.3. Assign the result to the object `model_class_0.3`.**  
+
+#### SOLUTION
+
+```{r, solution_05f, eval=FALSE}
+model_class_0.3 <- 
+```
+
+## Problem 06
+
+You will continue with the binary classification application in this problem.  
+
+### 6a)
+
+**Calculate the Accuracy of the model classifications based on the 0.7 threshold. You CANNOT use an existing function that calculates Accuracy automatically for you. You are permitted to use `dplyr` data manipulation functions.**  
+
+#### SOLUTION
+
+```{r, solution_06a}
+### your code here
+```
+
+### 6b)
+
+**Calculate the Sensitivity and Specificity of the model classifications based on the 0.7 threshold. Again you can calculate these however you wish. Except you cannot use a model function library that performs the calculations automatically for you.**  
+
+#### SOLUTION
+
+```{r, solution_06b}
+### add more code chunks if you need to
+```
+
+### 6c)
+
+**Calculate the Accuracy of the model classifications based on the 0.3 threshold.**  
+
+#### SOLUTION
+
+```{r, solution_06c}
+### your code here
+```
+
+### 6d)
+
+**Calculate the Sensitivity and Specificity of the model classifications based on the 0.3 threshold. Again you can calculate these however you wish. Except you cannot use a model function library that performs the calculations automatically for you.**  
+
+#### SOLUTION
+
+```{r, solution_06d}
+### add more code chunks if you need to
+```
+
+### 6e)
+
+You have calculated the Sensitivity and FPR at three different threshold values. You will plot your simple 3 point ROC curve and include a "45-degree" line as reference.  
+
+**Use `ggplot2` to plot your simple 3 point ROC curve. You must compile the necessary values into a data.frame or tibble. You must use `geom_point()` to show the markers, `geom_abline()` with `slope=1` and `intercept=0` to show the reference "45-degree" line. And you must use  `coord_equal(xlim=c(0,1), ylim=c(0,1))` with your graphic. This way both axes are plotted between 0 and 1 and the axes are equal.**  
+
+#### SOLUTION
+
+```{r, solution_06e}
+### you may add more code chunks if you need to
+```
