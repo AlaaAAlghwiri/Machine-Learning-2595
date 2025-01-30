@@ -947,7 +947,10 @@ In order to classify our predictions we must compare the predicted probability a
 #### SOLUTION
 
 ```{r, solution_05a, eval=TRUE}
-model_class_0.5 <- 
+model_class_0.5 <- model_pred_df %>%
+        mutate(pred_class = ifelse(pred_prob > 0.5,
+                                   yes = "event",
+                                   no = "non_event"))
 ```
 
 ### 5b)
@@ -959,7 +962,8 @@ You should now have a tibble that has a model classification and the observed bi
 #### SOLUTION
 
 ```{r, solution_05b}
-### your code here
+model_class_0.5 %>%
+        summarise(accuracy = sum(obs_class == pred_class)/ n())
 ```
 
 ### 5c)
@@ -973,10 +977,13 @@ We discussed in lecture how there are additional metrics we can consider with bi
 #### SOLUTION
 
 ```{r, solution_054c}
-### your code here
+model_class_0.5 %>%
+        count(pred_class, obs_class)
 ```
 
 your response here.  
+- 6 observations are associated with false positive.
+- 53 observations are associate with true negative.
 
 ### 5d)
 
@@ -985,7 +992,9 @@ your response here.
 #### SOLUTION
 
 ```{r, solution_05d}
-### add more code chunks if you need to
+model_class_0.5 %>%
+        summarise(Sensitivity = (sum(pred_class == "event" & obs_class == "event"))/(sum(pred_class == "event" & obs_class == "event") + sum(pred_class == "event" & obs_class == "non_event")),
+                  FPR = 1 - (sum(pred_class == "non_event" & obs_class == "non_event"))/(sum(pred_class == "non_event" & obs_class == "non_event") + sum(pred_class == "non_event" & obs_class == "event")))
 ```
 
 ### 5e)
@@ -999,7 +1008,10 @@ The first action you must perform is to make classifications based on a differen
 #### SOLUTION
 
 ```{r, solution_05e, eval=TRUE}
-model_class_0.7 <- 
+model_class_0.7 <- model_class_0.7 <- model_pred_df %>%
+        mutate(pred_class = ifelse(pred_prob > 0.7,
+                                   yes = "event",
+                                   no = "non_event"))
 ```
 
 ### 5f)
@@ -1009,7 +1021,10 @@ model_class_0.7 <-
 #### SOLUTION
 
 ```{r, solution_05f, eval=TRUE}
-model_class_0.3 <- 
+model_class_0.3 <- model_pred_df %>%
+        mutate(pred_class = ifelse(pred_prob > 0.3,
+                                   yes = "event",
+                                   no = "non_event"))
 ```
 
 ## Problem 06
