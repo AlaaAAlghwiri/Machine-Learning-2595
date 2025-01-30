@@ -567,7 +567,7 @@ You have fit the 9 polynomials and assessed their performance multiple ways. It'
 #### SOLUTION
 
 ```{r, solution_03a}
-### add your code here
+library(caret)
 ```
 
 ### 3b)
@@ -577,14 +577,18 @@ The resampling scheme is specified by the `trainControl()` function in `caret`. 
 **Specify the resampling scheme by completing the code chunk below. Assign the result of the `trainControl()` function to the `my_ctrl` variable.**  
 
 **How many times will a model be trained and tested using the desired resampling scheme?**  
+Since we have 5 folds of both training/testing data, each model will be trained and tested five times.
 
 #### SOLUTION
 
-```{r, solution_03b, eval=FALSE}
-my_ctrl <- 
+```{r, solution_03b, eval=TRUE}
+my_ctrl <- trainControl(method = "cv",
+                        number = 5,
+                        savePredictions = TRUE)
 ```
 
 How many times will an individual model be trained and tested?  
+5 times.
 
 ### 3c)
 
@@ -594,11 +598,12 @@ The `caret` package requires that we specify a primary performance metric of int
 
 *NOTE*: Not all of the listed performance metrics above are relevant to regression problems!  
 
-```{r, solution_3c, eval=FALSE}
-my_metric <- 
+```{r, solution_3c, eval=TRUE}
+my_metric <- "RMSE"
 ```
 
 Why did you make your choice?  
+For such a continuous outcome, I have a choice between RMSE, Rsquared, MAE. I prefer using the Rsquared value when explaining results to non-technical persons as I can use the percent of variability in the output variable that the model was able to explain as an indication of the model accuracy. For this practice, I need to compare the amount of error that the model makes in its predictions. Moreover, i want to compare the error value that the model is generating with the output value (Not the squared value like in mean squared error). In this case the RMSE is my choice.
 
 ### 3d)
 
@@ -614,82 +619,123 @@ Please note that you will use the entire data set for training and evaluating wi
 
 #### SOLUTION
 
-```{r, solution_03d_a, eval=FALSE}
+```{r, solution_03d_a, eval=TRUE}
 ### linear relationship (degree 1)
 set.seed(2001)
-mod_lowhigh_1 <- train()
+mod_lowhigh_1 <- train( y ~ x,
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_1
 ```
 
 
-```{r, solution_03d_b, eval=FALSE}
+```{r, solution_03d_b, eval=TRUE}
 ### quadratic relationship (degree 2)
 set.seed(2001)
-mod_lowhigh_2 <- train()
+mod_lowhigh_2 <- train(y ~ x + I(x^2),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_2
 ```
 
 
-```{r, solution_03d_c, eval=FALSE}
+```{r, solution_03d_c, eval=TRUE}
 ### cubic relationship (degree 3)
 set.seed(2001)
-mod_lowhigh_3 <- train()
+mod_lowhigh_3 <- train(y ~ x + I(x^2) + I(x^3),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_3
 ```
 
 
-```{r, solution_03d_d, eval=FALSE}
+```{r, solution_03d_d, eval=TRUE}
 ### degree 4
 set.seed(2001)
-mod_lowhigh_4 <- train()
+mod_lowhigh_4 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_4
 ```
 
 
-```{r, solution_03d_e, eval=FALSE}
+```{r, solution_03d_e, eval=TRUE}
 ### degree 5
 set.seed(2001)
-mod_lowhigh_5 <- train()
+mod_lowhigh_5 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_5
 ```
 
 
-```{r, solution_03d_f, eval=FALSE}
+```{r, solution_03d_f, eval=TRUE}
 ### degree 6
 set.seed(2001)
-mod_lowhigh_6 <- train()
+mod_lowhigh_6 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5) + I(x^6),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_6
 ```
 
 
-```{r, solution_03d_g, eval=FALSE}
+```{r, solution_03d_g, eval=TRUE}
 ### degree 7
 set.seed(2001)
-mod_lowhigh_7 <- train()
+mod_lowhigh_7 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                               I(x^5) + I(x^6) + I(x^7),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_7
 ```
 
 
-```{r, solution_03d_h, eval=FALSE}
+```{r, solution_03d_h, eval=TRUE}
 ### degree 8
 set.seed(2001)
-mod_lowhigh_8 <- train()
+mod_lowhigh_8 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                               I(x^5) + I(x^6) + I(x^7) +
+                               I(x^8),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_8
 ```
 
 
-```{r, solution_03d_i, eval=FALSE}
+```{r, solution_03d_i, eval=TRUE}
 ### degree 9
 set.seed(2001)
-mod_lowhigh_9 <- train()
+mod_lowhigh_9 <- train(y ~ x + I(x^2) + I(x^3) + I(x^4) + 
+                               I(x^5) + I(x^6) + I(x^7) +
+                               I(x^8) + I(x^9),
+                        data = df_low_high,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
 
 mod_lowhigh_9
 ```
@@ -698,7 +744,7 @@ mod_lowhigh_9
 
 The code chunk below compiles all of the model training results for you. The `lowhigh_results` object can be used to compare the models through tables and visualizations.  
 
-```{r, assemble_resampling_lowhigh, eval=FALSE}
+```{r, assemble_resampling_lowhigh, eval=TRUE}
 lowhigh_results = resamples(list(fit_01 = mod_lowhigh_1,
                                  fit_02 = mod_lowhigh_2,
                                  fit_03 = mod_lowhigh_3,
@@ -715,19 +761,21 @@ The `caret` package provides default summary and plot methods which rank the mod
 **You must display the summary table using the `summary()` function for the resampling results and visualize the resampling results using the `dotplot()` function. In both the `summary()` and `dotplot()` functions, you must specify the `metric` argument to be primary performance metric that you specified previously.**  
 
 **Which model is the best according to the resampling results?**  
-
+Based on the resampling results, polynomial order 3 is the lowest RMSE and hence the best model for this data set.
 #### SOLUTION
 
 ```{r, solution_03e_a}
-### summary for your performance metric
+summary(lowhigh_results,
+        metric = "RMSE")
 ```
 
 
 ```{r, solution_03e_b}
-### dotplot for your performance metric
+dotplot(lowhigh_results, metric = "RMSE")
 ```
 
 Which model is the best?  
+Based on both the dotplot and the summary table of all models, fit_03 or polynomial order 3 is the best model for this data set. fit_02 is also very close and has a tied confidence interval which also makes it a good candidate if we are looking for a simple and accurate model.
 
 ### 3f)
 
@@ -736,13 +784,16 @@ The `mod_lowhigh_*` variables are `caret` model objects and are essentially list
 **You must compare the coefficients between the top 3 models identified by the resampling procedure using the `coefplot::multiplot()` function.**  
 
 **Are the coefficient estimates similar for those coefficients present in at least 2 of the models visualized in the previous figure?**  
-
+Coefficient estimates are not similar for the best 3 models. as the coefficient plot shows. 
 **Is the level or amount of uncertainty associated with the coefficients consistent across the three models?**  
+Even the amount of uncertainty varies across the three models. Polynomial order 1 has the zero value in all it's estimates which makes it a bad candidate here. All the estimates of the polynomial order 2 are statistically significant as they don't have the zero value in their confidence interval and fairly tied. Polynomial order 3 has some significant estimates as in intercept, x, x^2, and probably x^3.
 
 #### SOLUTION
 
 ```{r, solution_03f}
-### your code here
+coefplot::multiplot(mod_lowhigh_1$finalModel, 
+                    mod_lowhigh_2$finalModel, 
+                    mod_lowhigh_3$finalModel)
 ```
 
 
