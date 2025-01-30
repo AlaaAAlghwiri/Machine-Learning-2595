@@ -2,7 +2,7 @@
 title: "INFSCI 2595 Spring 2025 Homework 2"
 subtitle: "Assigned January 24, 2025; Due: January 31, 2024"
 author: "Alaa Alghwiri"
-date: "'r Sys.Date()'"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
