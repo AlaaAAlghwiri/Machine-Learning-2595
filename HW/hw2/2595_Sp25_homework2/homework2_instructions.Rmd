@@ -1,6 +1,6 @@
 ---
 title: "INFSCI 2595 Spring 2025 Homework 2"
-subtitle: "Assigned January 24, 2025; Due: January 31, 2024"
+subtitle: "Assigned January 24"
 author: "Alaa Alghwiri"
 date: "`r Sys.Date()`"
 output: html_document
@@ -290,7 +290,7 @@ input_viz <- tibble::tibble(
 
 If you created `input_viz` correctly, it should have 201 rows. The code chunk below checks the number of rows for you.  
 
-```{r, solution_02a_b, eval=FALSE}
+```{r, solution_02a_b, eval=TRUE}
 input_viz %>% nrow()
 ```
 
