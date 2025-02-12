@@ -1,6 +1,6 @@
 ---
 title: "INFSCI 2595 Fall 2022 Homework: 04"
-subtitle: "Assigned September 22, 2022; Due: September 29, 2022"
+subtitle: "Assigned February 6, 2025; Due: February 17, 2025"
 author: "Alaa Alghwiri"
 date: "Submission time: September 29, 2022 at 11:00PM EST"
 output: html_document
@@ -208,7 +208,7 @@ $$
 
 Insert your code chunks. 
 ```{r}
-log_bernoulli_pmf(xobs = x, prob = 0.25)
+sum(log_bernoulli_pmf(xobs = x, prob = 0.25))
 ```
 
 
@@ -452,7 +452,7 @@ tibble::tibble(
 ### 3f)
 
 **How does your figure in 3e) compare to the figures in 3c) and 2f)?** 
-It's the same as the mentioned ones.
+Both shapes are exactly the same, but they differ in their y-values.
 
 #### SOLUTION
 
@@ -679,14 +679,14 @@ Add as many code chunks as you feel are necessary.
 ```{r Uniform prior}
 a_new_uniform <- player_hits + a_uniform
 a_new_uniform
-b_new_uniform <- player_atbats + b_uniform
+b_new_uniform <- b_uniform + (player_atbats - player_hits)
 b_new_uniform
 ```
 
 ```{r Inform prior}
 a_new_inform <- player_hits + a_inform
 a_new_inform
-b_new_inform <- player_atbats + b_inform
+b_new_inform <- b_inform + (player_atbats - player_hits)
 b_new_inform
 ```
 
@@ -701,23 +701,26 @@ b_new_inform
 #### SOLUTION
 
 ##### Uniform prior
-```{r, uniform prior summary stats}
-mean_uniform <- a_new_uniform/(a_new_uniform + b_new_uniform)
-paste0("the mean of the uniform prior = ", mean_uniform)
 
-mode_uniform <- (a_new_uniform - 1)/(a_new_uniform + b_new_uniform - 2)
-paste0("the mode of the uniform prior = ", (mode_uniform))
+```{r}
+posterior_outputs <- tibble::tibble(
+  a = c(a_uniform, a_inform),
+  b = c(b_uniform, b_inform),
+  prior_type = c("uniform", "inform")
+) %>% 
+  mutate(m = player_hits,
+         N = player_atbats) %>% 
+  mutate(a_new = a + m,
+         b_new = b + (N - m))
 
-fifth_percentile_uniform <- qbeta(0.05, 
-                                  shape1 = a_new_uniform, 
-                                  shape2 = b_new_uniform) 
-fifth_percentile_uniform
-
-nintyfivethe_percentile_uniform <- qbeta(0.95, 
-                                         shape1 = a_new_uniform, 
-                                         shape2 = b_new_uniform) 
-nintyfivethe_percentile_uniform
+posterior_outputs %>% 
+  mutate(post_mean = a_new /(a_new + b_new),
+         post_mode = (a_new - 1) / (a_new + b_new - 2),
+         post_q05 = qbeta(0.05, a_new, b_new),
+         post_q95 = qbeta(0.95, a_new, b_new)) %>% 
+  select(prior_type, starts_with('post_'))
 ```
+
 
 ##### Inform prior
 ```{r, Inform prior summary stats}
@@ -830,14 +833,14 @@ Add as many code chunks as you feel are necessary.
 ```{r Uniform prior _}
 a_new_uniform_season <- season_hits + a_uniform
 a_new_uniform_season
-b_new_uniform_season <- season_atbats + b_uniform
+b_new_uniform_season <- b_uniform + (season_atbats - season_hits)
 b_new_uniform_season
 ```
 
 ```{r Inform prior _}
 a_new_inform_season <- season_hits + a_inform
 a_new_inform_season
-b_new_inform_season <- season_atbats + b_inform
+b_new_inform_season <- b_inform + (season_atbats - season_hits)
 b_new_inform_season
 ```
 
