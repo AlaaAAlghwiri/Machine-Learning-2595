@@ -194,9 +194,14 @@ $$
 
 Write your answer in equation blocks  
 $$ 
- log [p \left( \mathbf{x} \mid \mu \right)]= log \left( \prod_{n=1}^{N}\left(\mu^\left (x_n \right) * \left( 1 - \mu \right)^ \left(1- x_n  \right)\right) \right)
+\log p(\mathbf{x} \mid \mu) = \sum_{n=1}^{N} \log \text{Bernoulli}(x_n \mid \mu)
 $$
-
+$$ 
+\log p(\mathbf{x} \mid \mu) = \sum_{n=1}^{N} \left( x_n \log(\mu) + (1 - x_n) \log(1 - \mu) \right)
+$$
+$$
+\log p(\mathbf{x} \mid \mu) = \log(\mu) \sum_{n=1}^{N} x_n + \log(1 - \mu) \sum_{n=1}^{N} (1 - x_n)
+$$
 
 ### 2b)
 
@@ -602,23 +607,20 @@ We already know that since the Beta is conjugate to the Binomial, the posterior 
 Write out your derivation below. An equation block is started for you, but you can add as many as you feel are necessary.  
 
 $$ 
-Posterior \propto Likelihood * Prior
+\log p(m \mid N, \mu) \propto m \log(\mu) + (N - m) \log(1 - \mu)
 $$
 
 $$ 
- p \left( \mu \mid m, N \right) \propto Binomial(m \mid N,\mu) * Beta(\mu \mid a, b)
+p(m \mid N, \mu) = \binom{N}{m} \mu^m (1 - \mu)^{N - m}
 $$
 
 $$ 
- p \left( \mu \mid m, N \right) \propto \mu^\left ( m\right) * (1- \mu)^\left( N - m \right)* \mu^\left ( a -1\right) * (1- \mu)^\left( b-1 \right)
+\log p(m \mid N, \mu) = \log \binom{N}{m} + \log \mu^m + \log (1 - \mu)^{N - m}
 $$
 $$ 
- p \left( \mu \mid m, N \right) =  Beta(\mu \mid a + m, b + (N-m))
+\log p(m \mid N, \mu) \propto m \log(\mu) + (N - m) \log(1 - \mu)
 $$
 
-$$ 
- p \left( \mu \mid m, N \right) =  Beta(\mu \mid a_{new}, b_{new})
-$$
 
 ### 5d)
 
@@ -843,6 +845,14 @@ a_new_inform_season
 b_new_inform_season <- b_inform + (season_atbats - season_hits)
 b_new_inform_season
 ```
+will put them all togther in one table
+```{r}
+season_output <- tibble::tibble(prior = c("uniform", "inform"),
+                                a_new = c(a_new_uniform_season, a_new_inform_season),
+                                b_new = c(b_new_uniform_season, b_new_inform_season))
+print(season_output)
+```
+
 
 ### 7b)
 
@@ -858,42 +868,11 @@ Add as many code chunks as you feel are necessary.
 
 ##### Uniform prior
 ```{r, uniform prior summary stats _}
-mean_uniform <- a_new_uniform/(a_new_uniform + b_new_uniform)
-paste0("the mean of the uniform prior = ", mean_uniform)
-
-mode_uniform <- (a_new_uniform - 1)/(a_new_uniform + b_new_uniform - 2)
-paste0("the mode of the uniform prior = ", (mode_uniform))
-
-fifth_percentile_uniform <- qbeta(0.05, 
-                                  shape1 = a_new_uniform, 
-                                  shape2 = b_new_uniform) 
-fifth_percentile_uniform
-
-nintyfivethe_percentile_uniform <- qbeta(0.95, 
-                                         shape1 = a_new_uniform, 
-                                         shape2 = b_new_uniform) 
-nintyfivethe_percentile_uniform
-```
-
-##### Inform prior
-```{r, Inform prior summary stats _}
-mean_inform_season <- a_new_inform_season/(a_new_inform_season + b_new_inform_season)
-paste0("the mean of the uniform prior = ", mean_inform_season)
-
-mode_inform_season <- (a_new_inform_season - 1)/(a_new_inform_season + b_new_inform_season - 2)
-paste0("the mode of the uniform prior = ", (mode_inform_season))
-
-fifth_percentile_inform_season <- qbeta(0.05, 
-                                  shape1 = a_new_inform_season, 
-                                  shape2 = b_new_inform_season) 
-paste0("the fifth percentile of the inform prior = ", (fifth_percentile_inform_season))
-
-nintyfivethe_percentile_inform_season <- qbeta(0.95, 
-                                         shape1 = a_new_inform_season, 
-                                         shape2 = b_new_inform_season) 
-paste0("the 95th percentile of the inform prior = ", (nintyfivethe_percentile_inform_season))
-
-
+season_output %>% 
+  mutate(post_mean = a_new /(a_new + b_new),
+         post_mode = (a_new - 1) / (a_new + b_new - 2),
+         post_q05 = qbeta(0.05, a_new, b_new),
+         post_q95 = qbeta(0.95, a_new, b_new)) 
 ```
 
 ### 7c)
