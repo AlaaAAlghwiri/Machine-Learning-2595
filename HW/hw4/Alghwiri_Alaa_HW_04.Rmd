@@ -74,6 +74,7 @@ Substitute $\mu_{0} = 125$ in the first equation:
 $$
 \tau_{0} = 5
 $$
+
 ### 1b)
 
 Let's examine the prior uncertainty another way besides the 95% prior uncertainty interval.  
@@ -84,7 +85,17 @@ Let's examine the prior uncertainty another way besides the 95% prior uncertaint
 
 #### SOLUTION
 
-You may add as many code chunks as you see fit to answer this question.  
+You may add as many code chunks as you see fit to answer this question. 
+Answer:
+Here is the 25th quantiles
+```{r}
+qnorm(p = 0.25, mean = 125, sd = 5)
+```
+And here is the 75th quantiles
+```{r}
+qnorm(p = 0.75, mean = 125, sd = 5)
+```
+
 
 ### 1c)
 
@@ -95,6 +106,11 @@ Besides wanting to produce parts with as high as performance as possible, the ma
 #### SOLUTION
 
 Add as many code chunks as you see fit to answer this question.  
+Answer:
+```{r}
+paste0("The prior probability that the mean performance, mu is less than 117 = ", round(pnorm(117, mean = 125, sd = 5), 3))
+```
+
 
 ### 1d)
 
@@ -106,7 +122,34 @@ Most of the engineers feel confident that the process standard deviation, $\sigm
 
 #### SOLUTION
 
-You may add as many equation blocks and code chunks as you see fit to answer this question.  
+You may add as many equation blocks and code chunks as you see fit to answer this question. 
+Answer:
+The posterior precision is the sum of the prior and the data precision:
+
+$$
+\frac{1}{\tau_{N}^{2}} = \frac{1}{\tau_{0}^{2}} + \frac{N}{\sigma^{2}}
+$$
+```{r}
+get_nobser <- function(tau_0, sigma, tau_N){
+  N <- (1 / tau_N^2 - 1 / tau_0^2) * sigma^2
+  return(N)
+}
+
+get_nobser(5, 5, 2)
+```
+
+After plugging in all numbers to the function, we get $N = 5.25$. So we need 6 observations to achieve $\tau_{N} = 2$.
+
+Let's try another 2 $\tau_{N}$ values:[1, 0.5]
+```{r}
+get_nobser(5, 5, 1)
+```
+So we need 24 observations to achieve $\tau_{N} = 1$
+```{r}
+get_nobser(5, 5, 0.5)
+```
+So we need 99 observations to achieve $\tau_{N} = 0.5$
+
 
 ### 1e)
 
@@ -118,7 +161,14 @@ A small contingent of engineers feel that the others are overly optimistic. This
 
 #### SOLUTION
 
-You may add as many equation blocks and code chunks as you see fit to answer this question.  
+You may add as many equation blocks and code chunks as you see fit to answer this question.
+Answer:
+In this case, following the same formula as in the previous question, we get:
+```{r}
+get_nobser(Inf, 15, 3)
+```
+We will need *25* parts in this case.
+
 
 ## Problem 02
 
