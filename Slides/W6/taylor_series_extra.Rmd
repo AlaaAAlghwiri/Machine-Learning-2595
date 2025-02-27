@@ -1,0 +1,450 @@
+---
+title: "Taylor Series Expansion examples"
+author: "Dr. Joseph P. Yurko"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This report provides several demonstrations of the Taylor series expansion for approximating functions. The examples are simple to allow visualizing the behavior of the pieces of the approximation method.  
+
+```{r, load_tidyverse}
+library(tidyverse)
+```
+
+## Univariate Taylor Series
+
+We will start with the univariate Taylor Series expansion. A Taylor series approximates a function, $f(x)$, around a local point. For example, we might be interested in behavior around the input, $x = x_0$. The input value $x_0$ will be referred to as the reference point. The function value at this point is denoted $f(x=x_0)$. The Taylor Series expansion approximates the function as an infinite summation series of terms involving derivatives of the function. We will will specifically focus on the second order Taylor Series expansion which involves the first and second derivatives. The second order Taylor Series expansion of $f(x)$ around the point $x=x_0$ is written below.  
+
+$$ 
+f\left(x\right) \approx f\left(x = x_0\right) + \left(x - x_0\right)\frac{d}{d x} \Big( f(x) \Big) \bigg|_{x=x_0} + \frac{1}{2}\left(x - x_0\right)^{2} \frac{d^2}{dx^2} \Big( f(x) \Big) \bigg|_{x=x_0}
+$$
+
+There are several key features of the approximation. First, the derivatives are multiplied by polynomials of the difference between the input and the reference point. The second key point is the derivatives are evaluated at the reference point. Therefore, we must be able to calculate the derivative of the function in order use the Taylor Series expansion.  
+
+Let's go through several simple examples to get a sense of the behavior of the terms within the approximation.  
+
+### Quadratic polynomial
+
+Let's apply the Taylor Series expansion to a quadratic function:  
+
+$$ 
+f\left(x\right) = a x^2 + b x + c
+$$
+
+The first derivative of the function with respect to $x$ is calculated by applying the derivative to each term in the summation. As shown below, the first derivative of a quadratic function linearly depends on the input.  
+
+$$ 
+\frac{d}{dx} \bigg( f\left(x\right) \bigg) = \frac{d}{dx} \bigg( a x^2 + b x + c \bigg) = 2a x + b
+$$
+
+
+The second derivative of the function is determined by taking the first derivative of the first derivative. The second derivative of a quadratic function does not depend on the input, $x$, and is thus constant.  
+
+$$  
+\frac{d^2}{dx^2} \bigg( f\left(x\right) \bigg) = \frac{d}{dx} \Bigg( \frac{d}{dx} \bigg( f\left(x\right) \bigg) \Bigg) = \frac{d}{dx} \bigg( 2a x + b \bigg) = 2a
+$$
+
+Let's get a sense of the behavior of the function, its derivative, and its second derivative with respect to the input. The function below calculates all three terms for a user specified set of coefficients.  
+
+```{r, make_quad_function}
+quad_func_tidy <- function(a, b, c, x)
+{
+  tibble::tibble(
+    x = x,
+    `f(x)` = a*x^2 + b*x + c,
+    `df/dx` = 2*a*x + b) %>% 
+    mutate(`d2f/dx2` = 2*a)
+}
+```
+
+
+The following coefficient values will be used for illustrative purposes, $a=-2.25$, $b=1.85$, and $c=-2$. You are free to change these coefficient values if you would.  
+
+```{r, define_quad_coefs}
+a = -2.25
+b = 1.85
+c = -2
+```
+
+The quadratic function, its first derivative, and second derivative are plotted with respect to the input `x` in the figure below. The function is a parabola with a peak around $x = 0.5$. The first derivative is a straight line, and the second derivative is constant as described previously. A quadratic function therefore has constant curvature with respect to the input!  
+
+```{r, viz_quad_behavior}
+quad_func_tidy(a, b, c, 
+               x = seq(-3, 3, by = 0.1)) %>% 
+  pivot_longer(-x) %>% 
+  mutate(name = forcats::fct_rev(name)) %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(size = 1) +
+  facet_wrap(~name, ncol = 1) +
+  theme_bw()
+```
+
+If you look closely at the figure above you should see that the first derivative equals zero when the parabola reaches its peak. Setting the first derivative equal to zero and solving for the input gives the input associated with the peak function value. With a quadratic function, the *critical point*, $\hat{x}$, is:  
+
+$$ 
+\frac{d}{dx} \bigg( f\left(x\right) \bigg) \Bigg|_{x=\hat{x}} = 0 = 2a \hat{x} + b \\ -b = 2a \hat{x} \\ \hat{x} = -\frac{b}{2a}
+$$
+
+
+The figure below shows the critical point as a reference vertical red dashed line. A grey horizontal dashed line at zero is included in the first derivative's facet, as well. The The first derivative crosses zero at this input value.  
+
+```{r, viz_quad_behavior_2}
+quad_func_tidy(a, b, c, 
+               x = seq(-3, 3, by = 0.1)) %>% 
+  pivot_longer(-x) %>% 
+  mutate(name = forcats::fct_rev(name)) %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_hline(data = tibble::tibble(name = factor(c("df/dx"),
+                                                 levels = c("f(x)", "df/dx", "df2/dx2")),
+                                   vvalue = 0),
+             mapping = aes(yintercept = vvalue),
+             color = 'grey', linetype = 'dashed', size = 1.2) +
+  geom_line(size = 1) +
+  geom_vline(xintercept = -0.5 * b / a, color = 'red', linetype = 'dashed') +
+  facet_wrap(~name, ncol = 1) +
+  theme_bw()
+```
+
+
+As an aside, we need to use the second derivative test to know if the critical point corresponds to a maximum or minimum function value. We look at the sign of the second derivative with a negative sign corresponding to a maximum point and a positive sign denoting a minimum point. The second derivative of the quadratic function is $2a$ and so for our specific value of `a` in the example, the second derivative is `r 2*a`. The critical point therefore corresponds to a `r ifelse(2*a < 0, 'maximum', 'negative')`.  
+
+Let's now apply the Taylor Series expansion to approximate the function around a specific value. For example, let's consider the input value `x = -0.75` as the reference value of interest. It is important to note that the Taylor Series expansion is approximating a functional relationship. We will consider how the function behaves **around** the reference value. The first and second derivatives are calculated at the reference point, and thus the derivatives will depend on the reference point.  
+
+The function below applies the Taylor Series expansion to the quadratic function. The second order Taylor Series approximation is divided into the three primary terms in the function below. The 0-th order approximation is denoted as `comp_0` and is equal to the function evaluated at the reference point. The linear component or the first-order component is the product of the difference between the input and the reference point and the first derivative evaluated at the reference point. The first-order component is denoted as `comp_1` in the function below. The first-order Taylor series approximation is the sum of the 0-th order and 1st order components. The quadratic component or second-order component is the product of the square of the difference between the input and reference point and the second derivative evaluated at the reference point. The second-order component is denoted as `comp_2` and the second-order Taylor series expansion is the sum of all three components.  
+
+```{r, make_taylor_series_quad}
+quad_func_taylor <- function(x0, a, b, c, x)
+{
+  # evaluate function, first, and second derivatives at the
+  # reference input value
+  f0 <- a * x0^2 + b * x0 + c
+  
+  df_0 <- 2 * a * x0 + b
+  
+  df2_0 <- 2 * a
+  
+  # calculate the components of the second order taylor series expansion
+  tibble::tibble(
+    x = x
+  ) %>% 
+    mutate(comp_0 = f0,
+           comp_1 = (x - x0) * df_0,
+           comp_2 = 0.5 * (x - x0)^2 * df2_0) %>% 
+    mutate(approx_0 = comp_0,
+           approx_1 = comp_0 + comp_1,
+           approx_2 = comp_0 + comp_1 + comp_2)
+}
+```
+
+
+Let's first consider the behavior of the three components relative to the true function around the reference point. The figure below zooms in on the interval between -2 and 0.5 to and thus focuses on the "neighborhood" around the reference point. The components reveal the approximation consists of a constant, a linear relationship, and a quadratic relationship. The second order Taylor Series approximation is the **sum** of these three components.  
+
+```{r, viz_taylor_comps_neighbor_1}
+quad_func_taylor(-0.75, a, b, c, 
+                 x = seq(-2., 0.5, by = 0.025)) %>% 
+  select(x, starts_with("comp_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("comp_word", "component term"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(mapping = aes(color = `component term`),
+            size = 1.2) +
+  geom_vline(xintercept = -0.75, color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind() +
+  theme_bw()
+```
+
+Let's now consider the behavior of the function approximation with respect to the input. The figure below plots the 0th, 1st, and 2nd order approximations as separate line colors and line types. For reference, the true function is shown by the grey curve in the figure below. The 0th order approximation is just the function evaluated at the reference point, $f(x=x_0)$. This constant value is clearly a poor approximation of the relationship because no trend is captured. The 1st order approximation is shown by the dashed orange line in the figure below. The 1st order approximation multiplies the first derivative by $x-x_0$. For the quadratic function, the first order approximation is thus a straight line. The slope of that straight line is equal to the slope (first derivative) evaluated at the reference point. The first order approximation is quite accurate for input values close to or nearby the reference point. However, as the input gets further away from the reference point the first-order approximation has greater and greater error relative to the true function. Lastly, the second-order approximation is shown in blue in the figure below. The second approximation is a quadratic relationship and thus is perfect when approximating a quadratic function! That is why the blue and grey curves are on top of each other in the figure below.  
+
+```{r, viz_taylor_approx_neighbor_1}
+quad_func_taylor(-0.75, a, b, c, 
+                 x = seq(-2., 0.5, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = quad_func_tidy(a, b, c, 
+                                  x = seq(-2., 0.5, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 1.75) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = -0.75, color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+Changing the reference point changes the first derivative and second derivative values in the Taylor Series approximation. For example, if we instead focus on the neighborhood the critical point, `x = ` `r signif(-0.5*b/a, 3)`, we see that the Taylor Series is approximating behavior around the peak of the parabola. The first-order approximation and the zero-th order approximation are the same in the figure below, because the first derivative is equal to zero at the parabola's peak. Again, the first-order approximation is close in the vicinity very close to the reference point. The first-order approximation gets worse as the input gets further from the reference point.  
+
+```{r, viz_taylor_approx_neighbor_2}
+quad_func_taylor(-0.5*b/a, a, b, c, 
+                 x = seq(0, 1, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = quad_func_tidy(a, b, c, 
+                                  x = seq(0, 1, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 1.75) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = -0.5*b/a, color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+Lastly, let's examine the behavior around `x = 1.25`.  
+
+```{r, viz_taylor_approx_neighbor_3}
+quad_func_taylor(1.25, a, b, c, 
+                 x = seq(0.25, 2.25, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = quad_func_tidy(a, b, c, 
+                                  x = seq(0.25, 2.25, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 1.75) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = 1.25, color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+The figure below combines the three previous visualizations into a single plot. This way we can see how the approximation changes across the input space. The first-order approximation is accurate only in the local neighborhood around the reference point. The second-order approximation is exact in this case whic is why the blue dashed curve is on top of the true function shown in grey.  
+
+```{r}
+quad_func_taylor(-0.75, a, b, c, 
+                 x = seq(-1.75, 0.25, by = 0.025)) %>% 
+  mutate(x0 = -0.75) %>% 
+  bind_rows(quad_func_taylor(-0.5*b/a, a, b, c, 
+                             x = seq(0, 1, by = 0.025)) %>% 
+              mutate(x0 = -0.5*b/a)) %>% 
+  bind_rows(quad_func_taylor(1.25, a, b, c, 
+                             x = seq(0.25, 2.25, by = 0.025)) %>% 
+              mutate(x0 = 1.25)) %>% 
+  select(x0, x, starts_with("approx_")) %>% 
+  pivot_longer(!c("x", "x0")) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = quad_func_tidy(a, b, c, 
+                                  x = seq(-1.75, 2.25, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 1.75) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx,
+                          group = interaction(approx, x0)),
+            size = 1.2) +
+  geom_vline(data = tibble::tibble(x0 = c(-0.75, -0.5*b/a, 1.25)),
+             mapping = aes(xintercept = x0), 
+             color = 'red', linetype = 'dashed') +
+  facet_wrap(~x0, labeller = "label_both", ncol = 1) +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+### 7th degree polynomial
+
+The quadratic function was a useful starting point to focus on the basic aspects of the Taylor Series expansion. A second order Taylor Series approximation is able to represent a quadratic function perfectly, because a quadratic is a second degree polynomial. We will now apply the second order Taylor Series expansion to a more complicated function: a 7th degree polynomial. The expression for the 7th degree polynomial is written in the equation block below.  
+
+$$ 
+f\left(x\right) = a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + a_7 x^7
+$$
+
+As with the simpler example, we need to determine the first and second derivatives. The first derivative is written below.  
+
+$$ 
+\frac{d}{dx} \Big( f\left(x\right) \Big) = a_1 + 2 a_2 x + 3 a_3 x^2 + 4 a_4 x^3 + 5 a_5 x^4 + 6 a_6 x^5 + 7 a_7 x^6
+$$
+
+
+The second derivative of the 7th degree polynomial is given below. As an aside, you might notice a pattern forming as we take derivatives of the polynomials. That pattern is interesting, but we will not discuss that here.  
+
+$$ 
+\frac{d^2}{dx^2} \Big( f\left(x\right) \Big) = 2a_2 + 6 a_3 x + 12 a_4 x^2 + 20 a_5 x^3 + 30 a_6 x^4 + 42 a_7 x^5
+$$
+
+
+The code chunk below defines a function which calculates the 7th degree polynomial, its first derivative, and its second derivative with respect to the input. The function below is coded for readability rather than calculating the polynomials as efficiently as possible.  
+
+```{r, make_poly7_func}
+poly7_func_tidy <- function(a, x)
+{
+  tibble::tibble(
+    x = x,
+    `f(x)` = a[1] + a[2]*x + a[3]*x^2 + a[4]*x^3 + a[5]*x^4 + a[6]*x^5 + a[7]*x^6 + a[8]*x^7,
+    `df/dx` = a[2] + 2*a[3]*x + 3*a[4]*x^2 + 4*a[5]*x^3 + 5*a[6]*x^4 + 6*a[7]*x^5 + 7*a[8]*x^6,
+    `d2f/dx2` = 2*a[3] + 6*a[4]*x + 12*a[5]*x^2 + 20*a[6]*x^3 + 30*a[7]*x^4 + 42*a[8]*x^5)
+}
+```
+
+
+The coefficient values for the 7th degree polynomial are specified below.  
+
+```{r, set_poly7_coef}
+a7_vec <- c(-9450, -2295, 2952, 847, -194, -57, 4, 1)/500
+```
+
+The function, first derivative, and second derivative are visualized with respect to the input over the interval -7 to +6 in the figure below.  
+
+```{r, viz_poly7_func}
+poly7_func_tidy(a7_vec, 
+                x = seq(-7, 6, by = 0.05)) %>% 
+  pivot_longer(-x) %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(size = 1.) +
+  facet_wrap(~name, ncol = 1, scales = "free_y", as.table = FALSE) +
+  theme_bw()
+```
+
+The code chunk below defines a function which evaluates the second-order Taylor Series approximation for the 8th degree polynomial. The format of this function is similar to that defined for the quadratic function previously.  
+
+```{r, make_poly7_taylor_func}
+poly7_func_taylor <- function(x0, a, x)
+{
+  # evaluate function, first, and second derivatives at the
+  # reference input value
+  f0 <- a[1] + a[2]*x0 + a[3]*x0^2 + a[4]*x0^3 + a[5]*x0^4 + a[6]*x0^5 + a[7]*x0^6 + a[8]*x0^7
+  
+  df_0 <- a[2] + 2*a[3]*x0 + 3*a[4]*x0^2 + 4*a[5]*x0^3 + 5*a[6]*x0^4 + 6*a[7]*x0^5 + 7*a[8]*x0^6
+  
+  df2_0 <- 2*a[3] + 6*a[4]*x0 + 12*a[5]*x0^2 + 20*a[6]*x0^3 + 30*a[7]*x0^4 + 42*a[8]*x0^5
+  
+  # calculate the components of the second order taylor series expansion
+  tibble::tibble(
+    x = x
+  ) %>% 
+    mutate(comp_0 = f0,
+           comp_1 = (x - x0) * df_0,
+           comp_2 = 0.5 * (x - x0)^2 * df2_0) %>% 
+    mutate(approx_0 = comp_0,
+           approx_1 = comp_0 + comp_1,
+           approx_2 = comp_0 + comp_1 + comp_2)
+}
+```
+
+
+Let's consider the second-order Taylor Series expansion about the point $x=-5$. The figure below shows the components, the zero-order, first-order, and second-order terms of the approximation. The Taylor Series approximation components consist of a constant term, a linear term, and a quadratic term. Just like we saw with the quadratic function's approximation! Even though the derivatives of the 7th degree polynomial function involves higher degree terms, the derivatives are evaluated at the reference value. Thus, the only trend within the approximation is the terms involving the difference between the input and the reference value.  
+
+```{r, viz_poly7_taylor_components}
+poly7_func_taylor(-5, a7_vec,
+                  x = seq(-7., -3, by = 0.025)) %>% 
+  select(x, starts_with("comp_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("comp_word", "component term"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(mapping = aes(color = `component term`),
+            size = 1.2) +
+  geom_vline(xintercept = -5, color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind() +
+  theme_bw()
+```
+
+As we described previously, the Taylor Series expansion is the sum of the three components in the above figure. Let's now compare the Taylor Series approximation to the true function in the area around the reference point of $x=-5$. As we did previously, the first-order and second-order approximations are included in the figure below. The true function is represented by the grey curve. The reference value of $x=-5$ is denoted by a red vertical line. The thinner red dashed vertical lines denote $\pm$ 15% around the reference point. As shown in the figure below, the first and second order approximations are quite accurate within the $\pm$ 15% window around the reference. Moving further from the reference point however shows that the approximation accuracies, including the second-order approximation, gets worse and worse.  
+
+```{r, viz_taylor_true_compare_poly7_1}
+poly7_func_taylor(-5, a7_vec,
+                  x = seq(-7., -3, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = poly7_func_tidy(a7_vec, 
+                                   x = seq(-7, -3, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 2.15) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = -5, 
+             color = 'red', linetype = 'dashed', size = 1.75) +
+  geom_vline(xintercept = c(-5 - 0.15*5, -5 + 0.15*5), 
+             color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+
+Let's examine the Taylor Series approximation behavior at another reference point, $x=-2$.  
+
+```{r, viz_taylor_true_compare_poly7_2}
+poly7_func_taylor(-2, a7_vec,
+                  x = seq(-4., 0, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = poly7_func_tidy(a7_vec, 
+                                   x = seq(-4, 0, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 2.15) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = -2, 
+             color = 'red', linetype = 'dashed', size = 1.75) +
+  geom_vline(xintercept = c(-2 - 0.15*2, -2 + 0.15*2), 
+             color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
+Let's look at at the behavior around one more reference point at $x=2.5$.  
+
+```{r, viz_taylor_true_compare_poly7_3}
+poly7_func_taylor(2.5, a7_vec,
+                  x = seq(0.5, 4.5, by = 0.025)) %>% 
+  select(x, starts_with("approx_")) %>% 
+  pivot_longer(-x) %>% 
+  tidyr::separate(name, 
+                  c("approx_word", "approx"),
+                  sep = "_") %>% 
+  ggplot(mapping = aes(x = x, y = value)) +
+  geom_line(data = poly7_func_tidy(a7_vec, 
+                                   x = seq(0.5, 4.5, by = 0.025)),
+            mapping = aes(x = x, y = `f(x)`),
+            color = 'grey', size = 2.15) +
+  geom_line(mapping = aes(color = approx,
+                          linetype = approx),
+            size = 1.2) +
+  geom_vline(xintercept = 2.5, 
+             color = 'red', linetype = 'dashed', size = 1.75) +
+  geom_vline(xintercept = c(2.5 - 0.15*2.5, 2.5 + 0.15*2.5), 
+             color = 'red', linetype = 'dashed') +
+  ggthemes::scale_color_colorblind("Approx\norder") +
+  scale_linetype_discrete("Approx\norder") +
+  theme_bw()
+```
+
