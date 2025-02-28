@@ -768,6 +768,8 @@ varphi_opt_b <- optim(1.35,
 varphi_opt_b
 ```
 
+Both mode values are the same
+
 
 ### 5c)
 
