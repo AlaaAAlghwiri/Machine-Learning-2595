@@ -1,0 +1,733 @@
+---
+title: "Final Project 1"
+author: "Mohammad Hajjaj"
+date: "2023-11-19"
+output: 
+  html_document:
+    keep_md: true
+    theme: united
+    toc: true
+    toc_float: true
+    toc_depth: 5
+    code_folding: hide
+    highlight: tango
+    number_sections: true
+    fig_caption: true
+    fig_height: 5
+    fig_width: 7
+    fig_align: center
+---
+
+```{r setup, include=FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r, , include=FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(reshape2)
+library(gridExtra)
+library(caret)
+library(rpart)
+library(randomForest)
+library(boot)
+library(coefplot)
+library(ggrepel)
+library(rstanarm)
+library(readr)
+library(broom)
+library(caret)
+library(glmnet)
+library(nnet)
+library(xgboost)
+library(broom.mixed)
+library(splines)
+
+```
+
+```{r, include=FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+df <- readr::read_csv("paint_project_train_data.csv", col_names = TRUE) |>
+  mutate(logit_response = boot::logit((response - 0)/100))
+```
+
+
+# Exploratory Data Analysis (EDA):
+
+## Basic EDA
+
+**Basic data overview**:
+```{r,Basic Overview-1}
+head(df)
+```
+
+**Quick summary statistics of the data set**:
+```{r,Basic Overview-3}
+summary(df)
+```
+
+**Quick data types check **:
+```{r}
+glimpse(df)
+```
+*All variables are of a continuous type except for Lightness and Saturation which are categorical variables*. Outcome, on the other hand is a binary variable coded as 0 and 1.
+
+**Show summary for the different categories/groups for Lightness and Saturation**:
+```{r}
+df <- df |> 
+  mutate(across(c(Lightness, Saturation), as.factor))
+
+df |> count(Lightness) |> mutate(prop = n / sum(n))
+
+df |> count(Saturation) |> mutate(prop = n / sum(n))
+```
+
+
+**Check for missing values**:
+```{r, Missing Value}
+map(df, ~sum(is.na(.)))
+```
+*Based on the missing values summary, we have a complete data set with no missing values for any column in the data frame*.
+
+**Check for duplicated cases**:
+```{r, duplicate Value}
+sum(duplicated(df))
+```
+*Each row in the data set is unique and there is no duplicated ones*.
+
+
+## EDA for categorical variables (Lightness and Saturation):
+
+Distribution of categorical variables using a bar chart.
+    
+### Visualizing counts for 'Lightness'
+```{r, Lightness}
+df %>% 
+ggplot(aes(x = Lightness)) + 
+  geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.3) +
+  labs(x = "Lightness", y = "Count", title = "Distribution of Lightness")
+
+# This table to show both the counts and proportions for each category
+df |> count(Lightness) |> mutate(prop = n / sum(n))
+```
+*The lightness variable has 7 categories as shown on the X-axis and the proportion is kind of similar for all categories*.
+
+### Visualizing counts for 'Saturation'
+
+```{r, Saturation}
+df %>% 
+ggplot( aes(x = Saturation)) + 
+  geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.3) +
+  labs(x = "Saturation", y = "Count", title = "Distribution of Saturation")
+
+# This table to show both the counts and proportions for each category
+df |> count(Saturation) |> mutate(prop = n / sum(n))
+
+```
+*Saturation has 7 categories with gray as the least frequent group*.
+
+## EDA for continuous variables (R, G, B, Hue, Response):
+
+```{r}
+ggplot(df, aes(x = R)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red") + 
+  labs(title = "Histogram for R", x = "R", y = "Density")
+```
+
+```{r}
+ggplot(df, aes(x = G)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red") + 
+  labs(title = "Histogram for G", x = "G", y = "Density")
+```
+
+```{r}
+ggplot(df, aes(x = B)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red") + 
+  labs(title = "Histogram for B", x = "B", y = "Density")
+```
+
+```{r}
+ggplot(df, aes(x = Hue)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red") + 
+  labs(title = "Histogram for Hue", x = "Hue", y = "Density")
+```
+
+```{r}
+ggplot(df, aes(x = response)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red") + 
+  labs(title = "Histogram for response", x = "response", y = "Density")
+```
+
+**Based on all of the above**:
+ 
+*The different visuals for R, G, B, Hue, and response variables indicate that none of them have Gaussian-like distributions*.  
+*These variables exhibit skewness, multi-modal patterns, or non-uniformity in their distributions, which deviate from the typical bell-shaped curve of normal distributions*. 
+
+### Continuous variables conditioned on categorical variables
+
+Find below the boxplots for the continuous variables conditioned on the categorical variables. Each box plot shows the distribution of the continuous variable and represents a summary statistics that entails the median, the interquartile range, and the range of the data. The boxplots are also colored by the categorical variables to show the distribution of the continuous variables across the different categories of the categorical variables.
+
+#### R
+
+
+##### R by Lightness
+
+```{r}
+df %>% 
+ggplot(aes(x = Lightness, y = R)) + 
+              geom_boxplot(aes(color = Lightness)) +
+  labs(title = "R by Lightness", x = "Lightness", y = "R") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average R values for light, midtone, pale, and soft categories are higher than the average R values for dark, deep, and saturated categories. The average R value for the dark category is the lowest among all categories.
+
+##### R by Saturation
+
+```{r}
+df %>% 
+ggplot(aes(x = Saturation, y = R)) + 
+              geom_boxplot(aes(color = Saturation)) +
+  labs(title = "R by Saturation", x = "Saturation", y = "R") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average R values for the categories are overlapping and there is no clear pattern.
+
+##### R by outcome
+
+```{r}
+df %>% 
+ggplot(aes(x = as.factor(outcome), y = R)) + 
+              geom_boxplot(aes(color = as.factor(outcome))) +
+  labs(title = "R by outcome", x = "Outcome", y = "R") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average and median R value for the 0 category are higher than the average and median R value for the 1 category.
+
+#### G
+
+
+##### G by Lightness
+
+```{r}
+df %>% 
+ggplot(aes(x = Lightness, y = G)) + 
+              geom_boxplot(aes(color = Lightness)) +
+  labs(title = "G by Lightness", x = "Lightness", y = "G") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average G values for light, midtone, pale, and soft categories are higher than the average G values for dark, deep, and saturated categories. The average G value for the dark category is the lowest among all categories.
+
+##### G by Saturation
+
+```{r}
+df %>% 
+ggplot(aes(x = Saturation, y = G)) + 
+              geom_boxplot(aes(color = Saturation)) +
+  labs(title = "G by Saturation", x = "Saturation", y = "G") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average R values for the categories are overlapping and there is no clear pattern. The highest average and median is for the pure category. The lowest average and median is for the gray category.
+
+##### G by outcome
+
+```{r}
+df %>% 
+ggplot(aes(x = as.factor(outcome), y = G)) + 
+              geom_boxplot(aes(color = as.factor(outcome))) +
+  labs(title = "G by outcome", x = "Outcome", y = "G") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average and median G value for the 0 category are higher than the average and median G value for the 1 category.
+
+#### B
+
+
+##### B by Lightness
+
+```{r}
+df %>% 
+ggplot(aes(x = Lightness, y = B)) + 
+              geom_boxplot(aes(color = Lightness)) +
+  labs(title = "B by Lightness", x = "Lightness", y = "B") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average B values for light, midtone, pale, and soft categories are higher than the average B values for dark, deep, and saturated categories. The average B value for the dark category is the lowest among all categories.
+
+##### B by Saturation
+
+```{r}
+df %>% 
+ggplot(aes(x = Saturation, y = B)) + 
+              geom_boxplot(aes(color = Saturation)) +
+  labs(title = "B by Saturation", x = "Saturation", y = "B") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The avaerage B values for the categories are overlapping and there is no clear pattern. The highest average and median is for the pure category. The lowest average and median is for the gray category.
+
+##### B by outcome
+
+```{r}
+df %>% 
+ggplot(aes(x = as.factor(outcome), y = B)) + 
+              geom_boxplot(aes(color = as.factor(outcome))) +
+  labs(title = "B by outcome", x = "Outcome", y = "B") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average and median B value for the 0 category is kind of similar to the median B value for the 1 category.
+
+#### Hue
+
+##### Hue by Lightness
+
+```{r}
+df %>% 
+ggplot(aes(x = Lightness, y = Hue)) + 
+              geom_boxplot(aes(color = Lightness)) +
+  labs(title = "Hue by Lightness", x = "Lightness", y = "Hue") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average Hue values for light are kind of similar and there is no clear difference between them. 
+
+##### Hue by Saturation
+
+```{r}
+df %>% 
+ggplot(aes(x = Saturation, y = Hue)) + 
+              geom_boxplot(aes(color = Saturation)) +
+  labs(title = "Hue by Saturation", x = "Saturation", y = "Hue") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average Hue values for the categories are overlapping and there is no clear pattern. The highest average and median is for the pure category. The lowest average and median is for the gray category.
+
+##### Hue by outcome
+
+```{r}
+df %>% 
+ggplot(aes(x = as.factor(outcome), y = Hue)) + 
+              geom_boxplot(aes(color = as.factor(outcome))) +
+  labs(title = "Hue by outcome", x = "Outcome", y = "Hue") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average Hue value for both outcomes is kind of the same. On the other hand, the median Hue value for the 0 category is higher than the median Hue value for the 1 category.
+
+#### Response
+
+
+##### Response by Lightness
+
+```{r}
+df %>% 
+ggplot(aes(x = Lightness, y = response)) + 
+              geom_boxplot(aes(color = Lightness)) +
+  labs(title = "response by Lightness", x = "Lightness", y = "response") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average response values for light, midtone, pale, and soft categories are higher than the average response values for dark, deep, and saturated categories. The average response value for the dark category is the lowest among all categories.
+
+##### Response by Saturation
+
+```{r}
+df %>% 
+ggplot(aes(x = Saturation, y = response)) + 
+              geom_boxplot(aes(color = Saturation)) +
+  labs(title = "response by Saturation", x = "Saturation", y = "response") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average response values for the categories are overlapping and there is no clear pattern. The highest average and median is for the pure category. The lowest average and median is for the gray category.
+
+##### Response by outcome
+
+```{r}
+df %>% 
+ggplot(aes(x = as.factor(outcome), y = response)) + 
+              geom_boxplot(aes(color = as.factor(outcome))) +
+  labs(title = "Response by outcome", x = "Outcome", y = "Response") +
+    stat_summary(fun = mean, geom = "point", shape = 3, 
+                 size = 3, color = "black", 
+                 position = position_dodge(width = 0.75)) 
+```
+
+The average and median response value for the 0 category is kind of similar to the median response value for the 1 category.
+
+### Correlation between continuous variables
+
+```{r, message = FALSE, warning = FALSE}
+library(corrplot)
+library(magrittr)
+library(psych)
+
+df |>
+  select_if(is.numeric) |>
+  select(-outcome) |>
+  cor() |>
+  corrplot(type = "upper", method = "number", 
+           tl.col = "black", tl.srt = 45, diag = FALSE)
+```
+
+**Based on the shown correlation matrix, we can clearly see that our response variable is highly correlated with R, G, and B with correlation values of 0.82, 0.98, and 0.84 respectively. At the same time R, G, and B are highly correlated with each others. Note that response is not correlated with Hue as the matrix shows**.
+
+### Response variable vs. R, G, B and Hue
+
+#### Response 
+
+##### Response vs. R
+
+```{r}
+df |>
+  ggplot(aes(x = R, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. R", x = "R", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+
+```
+
+
+```{r}
+df |>
+  ggplot(aes(x = R, y = logit_response)) +
+  geom_point() +
+  labs(title = "logit_response vs. R", x = "R", y = "logit_response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+Both the response and the logit response variables are highly and positively correlated with R. The response variable increases as R increases but the relationship seems to be quadratic in this plot.
+
+
+```{r}
+df |>
+  ggplot(aes(x = R, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. R by Lightness", x = "R", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+Based on the shown plot, the response variable increases as R increases for all lightness categories. Both light and pale categories have the highest response and R values. The relationship seems to be quadratic for dark, deep, and saturated categories. 
+
+
+```{r}
+df |>
+  ggplot(aes(x = R, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. R by Saturation", x = "R", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+Based on the shown plot, the response variable increases as R increases for all saturation categories. Some of the trends exhibit a clear linear relationship like gray, neutral and shaded. other categories like pure, saturated, and tinted have a more complex relationship. 
+
+##### Response vs. G
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. G", x = "G", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = logit_response)) +
+  geom_point() +
+  labs(title = "logit_response vs. G", x = "G", y = "logit_response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE)
+
+```
+
+Both the response and the logit response variables are highly and positively correlated with G. The response variable increases as G increases.
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. G by Lightness", x = "G", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) + 
+  facet_wrap(~ Lightness)
+```
+
+Based on the shown plot, the response variable increases as G increases for all lightness categories. Both light and pale categories have the highest response and G values.
+```{r}
+df |>
+  ggplot(aes(x = G, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. G by Saturation", x = "G", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+Based on the shown plot, the response variable increases as G increases for all saturation categories. The relationship seems to be quadratic for all the categories.
+
+
+##### Response vs. B
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. B", x = "B", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = logit_response)) +
+  geom_point() +
+  labs(title = "logit_response vs. B", x = "B", y = "logit_response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+Both the response and the logit response variables are correlated with B. The response variable increases as B increases.
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. B by Lightness", x = "B", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+Based on the shown plot, the response variable relationship with B by Lightness is complicated and don't seem linear as it directly is with B!
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. B by Saturation", x = "B", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+
+Based on the shown plot, the response variable increases as B increases for all saturation categories. The relationship seems to be linear for all the categories except for pureand bright, it's hard to tell.
+
+##### Response vs. Hue
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. Hue", x = "Hue", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = logit_response)) +
+  geom_point() +
+  labs(title = "logit_response vs. Hue", x = "Hue", y = "logit_response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+Both the response and the logit response variables are not correlated with Hue based on the direct relationship between them.
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. Hue by Lightness", x = "Hue", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+Based on the shown plot, we can now see kind of constant response values for all lightness categories. For instance the response values are very high for the light and pale categories and very low for the dark and deep categories. On the other hand, the response values for midtone and saturated are spread around.
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = response)) +
+  geom_point() +
+  labs(title = "Response vs. Hue by Saturation", x = "Hue", y = "Response") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+
+Based on the shown plot, the response variable exhibits a complex relationship with all saturation categories.
+
+### Binary outcome vs. R, G, B and Hue
+
+##### Binary outcome vs. R
+
+```{r, warning=FALSE}
+df |>
+  ggplot(aes(x = R, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. R", x = "R", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r, warning=FALSE}
+df |>
+  ggplot(aes(x = R, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. R by Lightness", x = "R", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+```{r}
+df |>
+  ggplot(aes(x = R, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. R by Saturation", x = "R", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+
+##### Binary outcome vs. G
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. G", x = "G", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. G by Lightness", x = "G", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+```{r}
+df |>
+  ggplot(aes(x = G, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. G by Saturation", x = "G", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+
+##### Binary outcome vs. B
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. B", x = "B", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. B by Lightness", x = "B", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+```{r}
+df |>
+  ggplot(aes(x = B, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. B by Saturation", x = "B", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+```
+
+##### Binary outcome vs. Hue
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. Hue", x = "Hue", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) 
+```
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. Hue by Lightness", x = "Hue", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Lightness)
+```
+
+```{r}
+df |>
+  ggplot(aes(x = Hue, y = outcome)) +
+  geom_point() +
+  labs(title = "Binary outcome vs. Hue by Saturation", x = "Hue", y = "Binary outcome") +
+  geom_smooth(method = 'loess',formula = 'y ~ x', se = FALSE) +
+  facet_wrap(~ Saturation)
+
+```
+
+### Binary outcome vs. categorical variables
+
+##### Binary outcome vs. Lightness
+
+```{r, warning=FALSE, message=FALSE}
+df %>% 
+    group_by(Lightness, outcome) %>%
+    summarize(Count = n()) %>%
+    ggplot(aes(x = Lightness, y = Count, fill = as.factor(outcome))) + 
+        geom_bar(stat = "identity", position = "dodge") +
+        labs(title = "Counts of Binary Outcome by Lightness Categories", x = "Lightness", y = "Count") +
+        scale_fill_discrete(name = "Outcome") + 
+        theme(legend.position = "bottom") +
+  geom_text(aes(label = Count), vjust = -0.3, position = position_dodge(width = 1))
+```
+
+##### Binary outcome vs. Saturation
+
+```{r, message=FALSE}
+df %>% 
+    group_by(Saturation, outcome) %>%
+    summarize(Count = n()) %>%
+    ggplot(aes(x = Saturation, y = Count, fill = as.factor(outcome))) + 
+        geom_bar(stat = "identity", position = "dodge") +
+        labs(title = "Counts of Binary Outcome by Saturation Categories", x = "Saturation", y = "Count") +
+        scale_fill_discrete(name = "Outcome") + 
+        theme(legend.position = "bottom") +
+  geom_text(aes(label = Count), vjust = -0.3, position = position_dodge(width = 1))
+```

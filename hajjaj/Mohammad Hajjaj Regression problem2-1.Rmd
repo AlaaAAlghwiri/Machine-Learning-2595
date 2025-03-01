@@ -1,0 +1,903 @@
+---
+title: "Regression problem"
+author: "Mohammad Hajjaj 2"
+date: "2023-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+
+```{r, load_summaryverse }
+
+library(tidyverse) 
+library(dplyr)
+library(reshape2)
+library(gridExtra)
+library(caret)
+library(rpart)
+library(randomForest)
+library(boot)
+library(coefplot)
+library(ggrepel)
+library(rstanarm)
+library(readr)
+library(broom)
+library(caret)
+library(glmnet)
+library(nnet)
+library(xgboost)
+library(broom.mixed)
+library(splines)
+#library(MASS)
+library(glmnet)
+library(e1071)
+```
+
+
+```{r, read_final_data}
+df <- readr::read_csv("paint_project_train_data.csv", col_names = TRUE)
+```
+```{r, Predicted using Random forest}
+df_test2 <- readr::read_csv("df_test_enhanced.csv", col_names = TRUE)
+```
+
+```{r, paint_project_holdout_data}
+df_test <- readr::read_csv("paint_project_holdout_data.csv", col_names = TRUE)
+```
+
+
+-------------------------------------------
+###   Regression task
+###   Regression iiA ) Linear models:
+-------------------------------
+```{r, eval=TRUE}
+
+dfii <- df %>% 
+  mutate(y = boot::logit( (response - 0) / (100 - 0) ) ) %>% 
+  select(R, G, B, Lightness, Saturation, Hue, y)
+```
+Visualize the relation:
+
+
+```{r}
+continuous_vars <- c("R", "G", "B", "Hue")
+
+scatter_plots <- lapply(1:(length(continuous_vars) - 1), function(i) {
+  var1 <- continuous_vars[i]
+  lapply((i + 1):length(continuous_vars), function(j) {
+    var2 <- continuous_vars[j]
+    ggplot(dfii, aes(x = !!sym(var1), y = !!sym(var2))) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y ~ x) +
+      labs(title = paste("Scatter Plot of", var1, "vs.", var2))
+  })
+})
+```
+
+```{r}
+scatter_plots
+```
+
+####  Part ii:  Regression iiA ) Linear models:
+
+
+## 1) First I'm going to train 10 lenir modle:
+
+```{r, 10 lenir modle, eval=TRUE}
+# Intercept only model (no inputs)
+model_1 <- lm(y ~ 1, data = dfii)
+
+# Categorical variables only (Lightness and Saturation as factors)
+model_2 <- lm(y ~ factor(Lightness) + factor(Saturation), data = dfii)
+
+# Continuous Variables Only (R, G, B)
+model_3 <- lm(y ~ R + G + B + Hue, data = dfii)
+
+# All Variables including interactions
+model_4 <- lm(y ~ R + G + B + Hue + factor(Lightness) + factor(Saturation), data = dfii)
+
+# Interaction of Categorical Inputs with All Continuous Inputs (Main Effects)
+model_5 <- lm(y ~ (factor(Lightness) + factor(Saturation)) * (R + G + B + Hue), data = dfii)
+
+# Add Categorical Inputs to All Main Effects and All Pairwise Interactions of Continuous Inputs
+model_6 <- lm(y ~ (R + G + B + Hue)^2 + factor(Lightness) + factor(Saturation), data = dfii)
+
+# Interaction of Categorical Inputs with All Main Effects and All Pairwise Interactions of Continuous Inputs
+model_7 <- lm(y ~ (Lightness + Saturation) * (R + G + B + Hue)^2, data = dfii)
+
+# Models with Basis Functions of Your Choice: Polynomial basis
+model_8 <- lm(y ~ poly(R, 2) + poly(G, 2) + poly(B, 2) + poly(Hue, 2) + factor(Lightness) + factor(Saturation), data = dfii)
+
+# Model 9: Natural splines (for R only)
+model_9 <- lm(y ~ splines::ns(R, 3) + G + B + Hue + factor(Lightness) + factor(Saturation), data = dfii)
+
+# Model 10: Quadratic term for Hue (for R, G, B, and Hue)
+model_10 <- lm(y ~ R + G + B + I(Hue^2) + Lightness * Saturation, data = dfii)
+
+
+
+```
+
+```{r}
+# Save each model as an RDS file
+write_rds(model_1, "model_1.rds")
+write_rds(model_2, "model_2.rds")
+write_rds(model_3, "model_3.rds")
+write_rds(model_4, "model_4.rds")
+write_rds(model_5, "model_5.rds")
+write_rds(model_6, "model_6.rds")
+write_rds(model_7, "model_7.rds")
+write_rds(model_8, "model_8.rds")
+write_rds(model_9, "model_9.rds")
+write_rds(model_10, "model_10.rds")
+
+```
+
+
+## 2)
+```{r}
+tr_set_rmse <- numeric(9)
+tr_set_rmse[1] <- modelr::rmse(model_1, dfii )
+tr_set_rmse[2] <- modelr::rmse(model_2, dfii )
+tr_set_rmse[3] <- modelr::rmse(model_3, dfii )
+tr_set_rmse[4] <- modelr::rmse(model_4, dfii )
+tr_set_rmse[5] <- modelr::rmse(model_5, dfii )
+tr_set_rmse[6] <- modelr::rmse(model_6, dfii )
+tr_set_rmse[7] <- modelr::rmse(model_7, dfii )
+tr_set_rmse[8] <- modelr::rmse(model_8, dfii )
+tr_set_rmse[9] <- modelr::rmse(model_9, dfii )
+tr_set_rmse[10] <- modelr::rmse(model_10, dfii )
+
+
+best_model_index <- which.min(tr_set_rmse)
+
+cat("Training Set RMSE for Each Model:\n")
+```
+```{r}
+for (i in 1:10) {
+  cat(paste("Degree(", i, ") : [", tr_set_rmse[i], "]\n"))
+}
+```
+
+```{r}
+cat("\nBest Model Degree (", best_model_index, ") with lowest training set RMSE: ",
+    tr_set_rmse[best_model_index], "\n")
+```
+
+```{r}
+
+data_to_plot <- tibble(
+  Degree = 1:10,
+  RMSE = tr_set_rmse
+)
+
+# Plot
+p <- ggplot(data_to_plot, aes(x = Degree, y = RMSE)) +
+  geom_point(aes(color = ifelse(Degree == best_model_index, "Best Model", "Other Model")), size = 3) +  # Highlight the best model
+  geom_line() +
+  labs(title = "RMSE for Each Polynomial Model",
+       x = "Polynomial Degree",
+       y = "RMSE Value") +
+  scale_color_manual(values = c("Best Model" = "red", "Other Model" = "blue")) +
+  theme_minimal()
+
+print(p)
+```
+
+### 4)  R-squared for each model:
+
+```{r,  R-squared for each model}
+tr_set_r_squared  <- numeric(16)
+tr_set_r_squared[1] <-  modelr::rsquare(model_1, data = dfii)
+tr_set_r_squared[2] <-  modelr::rsquare(model_2, data = dfii)
+tr_set_r_squared[3] <-  modelr::rsquare(model_3, data = dfii)
+tr_set_r_squared[4] <-  modelr::rsquare(model_4, data = dfii)
+tr_set_r_squared[5] <-  modelr::rsquare(model_5, data = dfii)
+tr_set_r_squared[6] <-  modelr::rsquare(model_6, data = dfii)
+tr_set_r_squared[7] <-  modelr::rsquare(model_7, data = dfii)
+tr_set_r_squared[8] <-  modelr::rsquare(model_8, data = dfii)
+tr_set_r_squared[9] <-  modelr::rsquare(model_9, data = dfii)
+tr_set_r_squared[10] <-  modelr::rsquare(model_10, data = dfii)
+
+rsquared_tibble <- tibble(Degree = 1:16, R_squared = tr_set_r_squared)
+
+
+print(rsquared_tibble)
+
+```
+   The best Models is 7, 5 and 8 the higher the value is, the closer to one, the
+better
+ ## 5 )
+## summary model_7
+```{r, model_7 summry}
+summary(model_7)
+```
+
+## coefficient plot for linear relationship model_7
+```{r,model_7_coefficient }
+coefplot::coefplot(model_7)+
+  labs(title = 'coefficient plot for linear relationship model_7')
+```  
+## summary  model_5
+```{r, summary  model_5}
+summary(model_5)
+```
+## coefficient plot for linear relationship model_5'
+```{r, coefplot  model_5 }
+coefplot::coefplot(model_5)+
+  labs(title = 'coefficient plot for linear relationship model_5')
+```
+
+## summary model_8
+```{r, summary model_8}
+summary(model_8)
+```
+## coefficient plot for linear relationship model_8
+```{r, coefplot model_8}
+coefplot::coefplot(model_8)+
+  labs(title = 'coefficient plot for linear relationship model_8')
+```
+
+##coefficient plot for linear relationship  model_7,model_5,model_8
+```{r, coefplot model_7,model_5,model_8 }
+coefplot::multiplot(model_7,model_5,model_8)
+```
+
+
+
+```{r, extract_metrics}
+extract_metrics <- function(mod, mod_name)
+{
+  broom::glance(mod) %>% mutate(mod_name = mod_name)
+}
+```
+
+```{r, eval=TRUE}
+all_metrics <- purrr::map2_dfr(list(model_1, model_2, model_3, model_4, model_5, model_6,model_7,model_8,model_9,model_10),
+                               as.character(1:10),
+                               extract_metrics)
+```
+
+```{r}
+all_metrics %>% glimpse()
+
+```
+
+
+```{r, eval=TRUE}
+all_metrics %>%
+  #select(mod_name,value, AICc, BIC)  %>%
+  pivot_longer(cols = c("r.squared", "AIC", "BIC"), names_to = "name", values_to = "value") %>%
+  ggplot(mapping = aes(x = mod_name, y = value)) +
+  geom_point(size = 5, color = 'red') +
+  facet_wrap(~name, scales = "free_y") +
+  theme_bw()
+```
+
+
+
+####  Part ii: Regression iiB ) Bayesian Linear models:
+
+
+
+##1) Firts,  Best Model from iiA, model_7, # Interaction of Categorical Inputs with All Main Effects and All Pairwise Interactions of Continuous Inputs
+##                           model_7 <- lm(y ~ (factor(Lightness) + factor(Saturation)) * (R + G + B + Hue)^2, data = dfii)
+
+
+```{r eval=FALSE, include=FALSE}
+bayesian_model_7 <- stan_glm(
+             y ~ (factor(Lightness) + factor(Saturation)) * (R + G + B + Hue)^2,
+  data = dfii,
+  prior = normal(0, 2.5, autoscale = TRUE),  # Weakly informative prior for coefficients
+  prior_intercept = normal(0, 10, autoscale = TRUE),  # Prior for the intercept
+  prior_aux = exponential(1, autoscale = TRUE),  # Prior for the residual standard deviation
+  algorithm = "sampling",  # MCMC sampling
+  chains = 4, iter = 2000,
+  seed = 123  # Set seed for reproducibility
+)
+
+```
+
+
+
+
+
+### I selected the secound model Continuous Variables Only model_3 <- lm(y ~ R + G + B + Hue, data = dfii)
+
+```{r eval=FALSE, include=FALSE}
+
+# Fit Bayesian linear model for model_3
+bayesian_model_3 <- stan_glm(
+                         y ~ R + G + B + Hue,data = dfii,
+                  prior = normal(0, 2.5, autoscale = TRUE),  # Weakly informative prior for coefficients
+                  prior_intercept = normal(0, 10, autoscale = TRUE),  # Prior for the intercept
+                  prior_aux = exponential(1, autoscale = TRUE),  # Prior for the residual standard deviation
+                   algorithm = "sampling",  # MCMC sampling
+                   chains = 4, iter = 2000,
+                    seed = 123  # Set seed for reproducibility
+)
+
+
+
+```
+### save the bayesian_model_7 and bayesian_model_3
+```{r eval=FALSE, include=FALSE}
+write_rds(bayesian_model_3, "bayesian_model_3.rds")
+write_rds(bayesian_model_7, "bayesian_model_7.rds")
+
+```
+### rload bayesian_model_7 and  bayesian_model_3
+```{r, rload bayesian_model_10 and  bayesian_model_13}
+bayesian_model_3_rd <- read_rds("bayesian_model_3.rds")
+bayesian_model_7_rd <- read_rds("bayesian_model_7.rds")
+
+```
+
+```{r, posterior_interval modul 7}
+posterior_interval(bayesian_model_7_rd)
+
+```
+
+```{r}
+posterior_interval(bayesian_model_3_rd)
+```
+
+```{r}
+rstanarm::bayes_R2(bayesian_model_7_rd) %>% quantile(c(0.05, 0.5, 0.95))
+```
+## Posterior visualizations:
+
+```{r, Posterior visualizations: Module 7}
+plot(bayesian_model_7_rd,  pars = names(bayesian_model_7_rd$coefficients)) + theme_bw()+ 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 1.) +
+  theme_bw()
+```
+### Note::
+
+
+```{r, Posterior visualizations:Module 3}
+
+plot(bayesian_model_3_rd,  pars = names(bayesian_model_3_rd$coefficients)) + theme_bw()+ 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 1.) +
+  theme_bw()
+```
+
+
+```{r}
+pp_check(bayesian_model_7_rd) + ggtitle("Posterior Predictive Check for Bayesian Model 7")
+
+
+```
+  ### this uncertainty in this module is lower, so It's a bitter fit for the data.
+
+
+```{r}
+pp_check(bayesian_model_3_rd) + ggtitle("Posterior Predictive Check for Bayesian Model 3")
+
+```
+
+
+##  inconclusion, the modle 7 has liss noise form modle 3. modle 7 is more precise than modwel3.
+
+
+the distribution on sigma
+
+```{r}
+as.data.frame(bayesian_model_7_rd) %>% tibble::as_tibble() %>% 
+  ggplot(mapping = aes(x = sigma)) +
+  geom_histogram(bins = 55) +
+  geom_vline(xintercept = stats::sigma(bayesian_model_7_rd),
+             color = "darkorange", linetype = "dashed", size = 1.1) +
+  theme_bw()
+```
+##  credible interval:
+```{r, credible interval.}
+library(bayesplot)
+
+sigma_samples <- as.array(bayesian_model_7_rd, pars = "sigma")
+
+mcmc_areas(sigma_samples, prob = 0.95) + theme_bw()
+```
+
+```{r,estimate}
+
+tidy(bayesian_model_7_rd) %>% 
+ggplot(aes(x = term, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error), width = 0.2) +
+  coord_flip() +  
+  theme_minimal()
+
+```
+
+    The Bayesian analysis shows a range of possible values for the noise in the model, indicating some uncertainty in its exact value. This is in contrast to the single point estimate given by traditional methods like lm(), which do not express this uncertainty.
+
+
+
+
+
+###Part ii: Regression iiC ) Linear models Predictions:
+
+
+## A) Data Predictions:
+
+```{r, Data Predictions, eval=TRUE}
+tidy_predict <- function(mod, xnew)
+{
+  pred_df <- predict(mod, xnew, interval = "confidence") %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    dplyr::select(pred = fit, ci_lwr = lwr, ci_upr = upr) %>% 
+    bind_cols(predict(mod, xnew, interval = 'prediction') %>% 
+                as.data.frame() %>% tibble::as_tibble() %>% 
+                dplyr::select(pred_lwr = lwr, pred_upr = upr))
+  
+  xnew %>% bind_cols(pred_df)
+}
+```
+
+```{r,Predictions_model_5, eval=TRUE}
+predictions_7 <- tidy_predict (model_7,  df_test)
+predictions_8 <- tidy_predict (model_8,  df_test)
+
+```
+
+```{r}
+ylim_lower <- min(predictions_7$ci_lwr, na.rm = TRUE) * 1.1
+ylim_upper <- max(predictions_7$ci_upr, na.rm = TRUE) * 1.1
+
+```
+
+
+
+```{r, R Trend}
+
+ggplot(predictions_7, aes(x = R, y = pred)) + 
+  geom_line(color = 'black', size = 1) +  
+  geom_ribbon(aes(ymin = ci_lwr, ymax = ci_upr), 
+              fill = 'orange', alpha = 0.70) +  
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), 
+              fill = 'grey', alpha = 0.50) + 
+  facet_grid(Saturation   ~ Lightness, scales = "free_y") + 
+  theme_minimal(base_size = 14) +  
+    
+  scale_x_continuous(breaks = seq(0, 200, by = 50)) +  
+  coord_cartesian(ylim  = c(ylim_lower, ylim_upper)) +  
+  labs(x = "R Value", y = "Predicted Value", 
+       title = "Predictive Trend from model_5",
+       fill = "Interval Type") 
+
+```
+
+```{r, G Trend}
+ggplot(predictions_7, aes(x = G, y = pred)) + 
+  geom_line(color = 'black', size = 1) +  
+  geom_ribbon(aes(ymin = ci_lwr, ymax = ci_upr), 
+              fill = 'orange', alpha = 0.70) +  
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), 
+              fill = 'grey', alpha = 0.50) + 
+  facet_grid(Saturation   ~ Lightness) + 
+  theme_minimal(base_size = 14) +  
+  
+  scale_x_continuous(breaks = seq(0, 200, by = 50)) +  
+  coord_cartesian(ylim  = c(ylim_lower, ylim_upper)) +  
+  labs(x = "G Value", y = "Predicted Value", 
+       title = "Predictive Trend from model_5",
+       fill = "Interval Type")
+```
+
+
+```{r, B Trend}
+ggplot(predictions_7, aes(x = B, y = pred)) + 
+  geom_line(color = 'black', size = 1) +  
+  geom_ribbon(aes(ymin = ci_lwr, ymax = ci_upr), 
+              fill = 'orange', alpha = 0.70) +  
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), 
+              fill = 'grey', alpha = 0.50) + 
+  facet_grid(Saturation   ~ Lightness) + 
+  theme_minimal(base_size = 14) +  
+    
+  scale_x_continuous(breaks = seq(0, 200, by = 50)) +  
+  coord_cartesian(ylim  = c(ylim_lower, ylim_upper)) +  
+  labs(x = "B Value", y = "Predicted Value", 
+       title = "Predictive Trend from model_5",fill = "Interval Type")
+      
+```
+
+
+```{r,  Hue Trend}
+ggplot(predictions_7, aes(x =  Hue, y = pred)) + 
+  geom_line(color = 'black', size = 1) +  
+  geom_ribbon(aes(ymin = ci_lwr, ymax = ci_upr), 
+              fill = 'orange', alpha = 0.70) +  
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), 
+              fill = 'grey', alpha = 0.50) + 
+  facet_grid(Saturation   ~ Lightness) + 
+  theme_minimal(base_size = 14) +  
+ 
+  scale_x_continuous(breaks = seq(0, 200, by = 50)) +  
+  coord_cartesian(ylim  = c(ylim_lower, ylim_upper)) +  
+  labs(x = " Hue Value", y = "Predicted Value", 
+       title = "Predictive Trend from model_5",fill = "Interval Type")
+      
+```
+
+
+
+
+
+```{r,}
+
+x_vars <- c("R", "G", "B", "Hue")
+
+
+plots <- list()
+
+
+for (x_var in x_vars) {
+
+  ylim_lower <- min(predictions_8$ci_lwr, predictions_7$pred_lwr, na.rm = TRUE) * 1.1
+  ylim_upper <- max(predictions_8$ci_upr, predictions_7$pred_upr, na.rm = TRUE) * 1.1
+  
+
+  p <- ggplot(predictions_8, aes(x = .data[[x_var]], y = pred)) + 
+   geom_line(color = 'black', size = 1) +  
+  geom_ribbon(aes(ymin = ci_lwr, ymax = ci_upr), 
+              fill = 'orange', alpha = 0.70) +  
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), 
+              fill = 'grey', alpha = 0.50) + 
+  facet_grid(Saturation   ~ Lightness) + 
+  theme_minimal(base_size = 14) +  
+ 
+  scale_x_continuous(breaks = seq(0, 200, by = 50)) +  
+    coord_cartesian(ylim = c(ylim_lower, ylim_upper)) +  
+    labs(x = x_var, y = "Predicted Value", 
+         title = paste("Predictive Trend from model_8 with", x_var),
+         fill = "Interval Type")
+  
+  
+  plots[[x_var]] <- p
+}
+
+
+invisible(lapply(plots, print))
+
+
+
+
+```
+
+
+
+
+ The predictive trends from Model 7 and Model 8 are similar in their range, central tendency, and levels of uncertainty, as indicated by comparable summary statistics and visually similar trends in the graphs. Without direct side-by-side comparison, the data suggests consistency in predictive behavior between the two models
+ 
+### Part ii: Regression iiD.
+
+
+## Resampling and Metric Setup:
+
+```{r,  Resampling_and_Metric_Setup, eval=TRUE}
+
+my_ctrl <- trainControl(method = "repeatedcv",
+                        number = 5, 
+                        repeats = 3)
+my_metric <- "RMSE"
+```
+
+##Linear Model:
+
+## All categorical and continuous inputs linear additive features
+```{r,  train and tune the following model 5 }
+set.seed(1234)
+fit_lm1 <- train(y ~ R + G + B + Hue + 
+                  factor(Lightness) + factor(Saturation) ,
+                data = dfii,
+                method = "lm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl)
+fit_lm1
+```
+
+```{r, train and tune the following model 6 }
+set.seed(1234)
+fit_lm2 <- train(y ~ (R + G + B + Hue)^2
+                + factor(Lightness) + factor(Saturation) ,
+                data = dfii,
+                method = "lm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl)
+fit_lm2
+```
+
+## Quadratic term for Hue (for R, G, B, and Hue)
+```{r, train and tune the following model 10 }
+set.seed(1234)
+fit_lm3 <- train(y ~ R + G + B + I(Hue^2) + Lightness * Saturation ,
+                data = dfii,
+                method = "lm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl)
+fit_lm3
+```
+## regularization penalty parameter
+```{r, regularization penalty parameter2}
+tuneGrid1 <- expand.grid(.alpha = seq(0, 1, 
+                                     length = 10),
+                        .lambda = 10^seq(-3, -1,
+                                         length = 100))
+```
+
+## Elastic Net (GLMNET) with All-Pair Interaction:
+
+```{r, Elastic_Net1}
+set.seed(1234)
+fit_enet4 <- train(y ~ (R + G + B + Hue)^2 
+                  + factor(Lightness) + factor(Saturation),
+                  data = dfii,
+                  method = "glmnet",
+                  metric = my_metric,
+                  tuneGrid = tuneGrid1,
+                  preProcess = c("center", "scale"),
+                  trControl = my_ctrl)
+fit_enet4
+```
+
+
+```{r, Elastic_Net2}
+set.seed(1234)
+fit_enet5 <- train(y ~ (factor(Lightness) + 
+                          factor(Saturation)) * (R + G + B + Hue)^2,
+                  data = dfii,
+                  method = "glmnet",
+                  metric = my_metric,
+                  tuneGrid = tuneGrid1,
+                  preProcess = c("center", "scale"),
+                  trControl = my_ctrl)
+fit_enet5
+```
+
+```{r, Save Elastic Net (GLMNET)}
+# Save the fit_enet4 model
+saveRDS(fit_enet4, "fit_enet4.rds")
+
+# Save the fit_enet5 model
+saveRDS(fit_enet5, "fit_enet5.rds")
+
+```
+
+```{r, Load the fit_enet4 model}
+# Load the fit_enet4 model
+fit_enet4_loaded <- readRDS("fit_enet4.rds")
+
+# Load the fit_enet5 model
+fit_enet5_loaded <- readRDS("fit_enet5.rds")
+
+```
+
+# Neural Network :
+
+```{r, Neural_Network }
+set.seed(1234)
+fit_nnet6 <- train(y ~ factor(Lightness) + 
+                          factor(Saturation) + R + G + B + Hue,
+                  data = dfii,
+                  method = "nnet",
+                  metric = my_metric,
+                  preProcess = c("center", "scale"),
+                  trControl = my_ctrl,
+                  trace = FALSE,
+                  linout = TRUE)
+fit_nnet6
+```
+
+
+```{r, Save Neural_Network (GLMNET)}
+# Save the fit_enet4 model
+saveRDS(fit_nnet6, "fit_nnet6.rds")
+
+# Save the fit_enet5 model
+saveRDS(fit_nnet6, "fit_nnet6.rds")
+
+```
+
+## Random Forest:
+
+```{r, Random_Forest}
+set.seed(1234)
+
+fit_rf6 <- train(y ~ factor(Lightness) + 
+                          factor(Saturation) + R + G + B + Hue,
+                data = dfii,
+                method = "rf",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl,
+                importance = TRUE)
+fit_rf6
+```
+### Gradient Boosted Tree:
+
+```{r, Gradient_Boosted_Tree}
+set.seed(1234)
+fit_xgb7 <- train(y ~ factor(Lightness) + 
+                          factor(Saturation) + R + G + B + Hue,
+                 data = dfii,
+                 method = "xgbTree",
+                 metric = my_metric,
+                 preProcess = c("center", "scale"),
+                 trControl = my_ctrl)
+fit_xgb7
+```
+
+
+### SVM with Radial Basis Function:
+
+```{r}
+library(kernlab)
+set.seed(1234)
+fit_svm <- train(y ~ factor(Lightness) + 
+                          factor(Saturation) + R + G + B + Hue,
+                 data = dfii,
+                 method = "svmRadial",
+                 metric = my_metric,
+                 preProcess = c("center", "scale"),
+                 trControl = my_ctrl)
+fit_svm
+```
+
+###Partial Least Squares :
+
+```{r, Partial_Least_Squares}
+set.seed(1234)
+fit_pls <- train(y ~ factor(Lightness) + 
+                          factor(Saturation) + R + G + B + Hue ,
+                 data = dfii,
+                 method = "pls",
+                 metric = my_metric,
+                 preProcess = c("center", "scale"),
+                 trControl = my_ctrl)
+fit_pls
+```
+
+
+
+
+##Comparing Models:
+  
+```{r, Comparing_Models}
+# List of trained models
+model_list <- list(fit_lm1 = fit_lm1, fit_lm2 = fit_lm2, fit_lm3 = fit_lm3,
+                   fit_enet4 = fit_enet4, fit_enet5 = fit_enet5,
+                   fit_nnet6 = fit_nnet6, fit_rf6 = fit_rf6,
+                   fit_xgb7 = fit_xgb7, fit_svm = fit_svm, fit_pls = fit_pls)
+
+# Compare models
+results <- resamples(model_list)
+summary(results)
+
+
+```
+## Plotting model comparisons
+```{r, Plotting model comparisons}
+bwplot(results, metric = "RMSE")
+```
+
+
+### Part iv: Interpretation ivA ) Input Importance:
+
+## The best model is the  Random Forest module.
+
+```{r, Interpretation ivA}
+plot(varImp(fit_rf6))
+```
+
+The best model is the  Random Forest module
+
+## I can see the G is the moste important variable.
+
+Yes, I can see the 'G' the green color is dominate other color , 
+and Yes, there is other color  is not helpful at all.
+
+```{r}
+fit_rf6
+```
+based on the  Random Forest module result's, 
+ 
+Assuming that we are using 80% as a threshold for a sufficient enough model,
+the regression model are performing satisfactorily
+. In this case, AUC was used for the classification model and 
+R-squared value for the regression model.
+Ultimately, colors are good enough to identify popular paints 
+
+
+The hardest Lightness and Saturation combination to predict is 
+factor(Saturation)gray, while the easiest are factor(Lightness)saturated
+and factor(Saturation)pure.
+
+Easiest to predict: factor(Lightness)saturated and factor(Saturation)pure
+Hardest to predict: factor(Saturation)gray
+
+The best models would likely perform well by leveraging the 
+factors with the highest importance, which show strong predictive power,
+while the factors with the lowest importance scores would contribute the
+least to the models' performance.
+_____________________________________________________________
+## Part iv: Interpretation – iv C) Prediction insights:
+_______________________________________________________________
+
+
+
+##Generate a grid of 101 
+```{r}
+
+# Create vectors for Saturation and Lightness with the desired order
+saturation_values <- c("bright", "gray", "muted", "neutral", "pure", "shaded", "subdued")
+lightness_values <- c("dark", "deep", "light", "midtone", "pale", "saturated", "soft")
+
+# Create a grid with manually specified order for Saturation and Lightness
+grid <- data.frame(
+  R = rep(seq(0, 255, length.out = 101), each = length(saturation_values) * length(lightness_values)),
+  G = rep(seq(0, 255, length.out = 101), each = length(saturation_values) * length(lightness_values)),
+  B = rep(127, times = length(saturation_values) * length(lightness_values) * 101),
+  Hue = rep(20, times = length(saturation_values) * length(lightness_values) * 101),
+  Saturation = rep(saturation_values, each = 101 * length(lightness_values)),
+  Lightness = rep(lightness_values, times = 101),
+  KEEP.OUT.ATTRS = FALSE,
+  stringsAsFactors = FALSE
+)
+grid
+```
+
+## regration model
+
+```{r}
+df_test2 %>%
+ filter(Saturation == 'gray', Lightness == 'pale') %>%
+  ggplot(aes(x = Hue, y = R)) +
+    geom_raster(aes(fill = predicted), width = 120, height = 10) +  # Adjust width and height as needed
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red', midpoint = 0.5, limits = c(0, 1))
+
+```
+
+```{r}
+df_test2 %>%
+ filter(Saturation == 'gray', Lightness == 'pale') %>%
+  ggplot(aes(x = R, y = B)) +
+    geom_raster(aes(fill = predicted), width = 120, height = 10) +  # Adjust width and height as needed
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red', midpoint = 0.5, limits = c(0, 1))
+
+```
+## confidence interval:
+```{r}
+df <- df_test2 %>%
+  mutate(conf_interval_width = conf_high - conf_low)
+```
+
+## hardest to predict combinations:
+```{r}
+hardest_to_predict <- df %>%
+  arrange(desc(conf_interval_width)) %>%
+  slice_head(n = 5)
+hardest_to_predict
+```
+## easiest to predict combinations:
+```{r}
+easiest_to_predict <- df %>%
+  arrange(conf_interval_width) %>%
+  slice_head(n = 5)
+
+```
+
+
+
+
+

@@ -1,0 +1,1518 @@
+---
+title: "INFSCI 2595 Fall 2023 - MIDTERM"
+subtitle: "Assigned October 11, 2023; Due: October 19, 2023"
+author: "Mohammade Hajjaj"
+date: "Submission time: October 19, 2023 at 11:00PM EST"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Collaborators
+
+You are **NOT** allowed to collaborate within anyone. Collaboration, copying, and/or cheating of any kind will not be tolerated.  
+
+By downloading the template file you assert that you will **not** collaborate with anyone else on this exam.  
+
+## Overview
+
+This midterm tests your understanding of the concepts, math, and programming required to learn distributions from data. You are required to perform a mixture of derivations and programming to solve the questions on the exam.  
+
+**READ the problem statements CAREFULLY!**  
+
+**IMPORTANT**: The RMarkdown assumes you have downloaded two data sets (CSV files) and saved them to the same directory you saved the template Rmarkdown file. If you do not have the CSV files in the correct location, the data will not be loaded correctly.  
+
+### IMPORTANT!!!
+
+Certain code chunks are created for you. Each code chunk has `eval=FALSE` set in the chunk options. You **MUST** change it to be `eval=TRUE` in order for the code chunks to be evaluated when rendering the document.  
+
+You are free to add more code chunks if you would like.  
+
+## Load packages
+
+This assignment will use packages from the `tidyverse` suite.  
+
+```{r, load_packages}
+library(tidyverse)
+library(ggrepel)
+```
+
+## Problem 01
+
+You have fit discrete and continuous distributions to data, using non-Bayesian and Bayesian approaches. Bayesian analyses require a prior to be formulated, and it can be difficult to understand how a prior is specified in a general setting. This exam seeks to give you some practice doing that by using the **Empirical Bayes** approach. Empirical Bayes is a rather odd sounding name, but the idea is that you will estimate the parameters of the prior using all of the available data. It is useful when the data can be structured into **groups**. Some groups might have many observations, while others may have a limited number of samples. Empirical Bayes is useful when there are many groups (potentially in the thousands) that can be used to estimate the prior parameters. Once estimated, the prior is applied to each group separately. In this manner you have made use of data to understand the relevant bounds on your unknowns and specified those bounds within a prior probability distribution. The *informative* prior is updated based on each group's data to yield the updated belief (the posterior) for each group. (Note that if we would have very few groups we could not use Empirical Bayes and thus would need to use full Bayesian approaches via multilevel, hierarchical, or partial pooling models.)  
+
+To see how the Empirical Bayes process works you will work with a Movie Rating application. You are interested in learning the probability a movie receives a POSITIVE user review. Movies with a high probability of a positive review correspond to movies that audiences enjoyed and liked to watch. Knowing how to estimate the probability of a positive review is important for **RECOMMENDATION ENGINES**. Companies like Amazon, Netflix, and others design RECOMMENDATION ENGINES that recommend POPULAR items to customers. You are working with **real** data for this exam. The data were **not** generated artificially. The data come from a movie rating database that is commonly used for teaching the fundamentals of RECOMMENDATION ENGINES. You will not work with the complete database however. Instead you are provided a representative sample. Also, the identifying information as been removed and altered relative to the database. In this way you can not look up the movie the data are associated with.
+
+You will use Bayesian techniques in this exam to learn a fundamental quantity associated with RECOMMENDATION ENGINES. You will learn the probability a product (movies in this case) is popular given user ratings! By using Bayesian techniques you will naturally be able to provide the **uncertainty** on the probabilities, rather than just relying on simple **point estimates**. The movie ratings have been BINARIZED into a user liked the movie OR the user did not like the movie. The way the original movie ratings were BINARIZED is not relevant to this exam. What matters is the **EVENT** of interest is a user giving a POSITIVE review (liking the movie), while the **NON-EVENT** is a user giving a NEGATIVE review (not-liking the movie). The probability of a POSITIVE review is therefore the **event probability** you are interested in learning.  
+
+You will work with two data sets for this exam. Both are loaded for you below. The first, `df_all`, is the larger of the two. The second, `df_focus`, is a subset of `df_all` so that we way can focus on 30 movies to help with visualization, interpretation, and discussion in the exam.  
+
+```{r, load_datasets_all}
+file_with_all <- "midterm_all_data.csv"
+df_all <- readr::read_csv(file_with_all, col_names = TRUE)
+```
+
+```{r}
+glimpse(df_all)
+```
+
+```{r, load_datasets_focus}
+file_with_focus <- "midterm_focus_data.csv"
+df_focus <- readr::read_csv(file_with_focus, col_names = TRUE)
+```
+```{r}
+glimpse(df_focus)
+```
+
+
+
+Both data sets consist of 3 variables, `movie_id`, `num_events`, and `num_trials`. The `num_events` is the number of POSITIVE reviews, and `num_trials` is the number of reviews. The variables are written in the general terms that we have used in the class rather than movie or recommendation engine specific terms. The `movie_id` variable is an ID variable for each movie. Thus, one row in either data set tells us the number of POSITIVE reviews and the total number of reviews associated with a movie. Again, the data in this exam are real. The `movie_id` variable is an anonymous identification number I created so that you cannot link the exam data back to the original online data base.  
+
+### 1a)
+
+You will eventually use the Empirical Bayes approach in this exam. However, let's motivate why such an approach is useful. You will begin by assuming you are not capable of creating an informative prior. For example, even if you watch a lot of movies, you may not feel comfortable expressing the chance someone else will like a movie! Since you do not feel comfortable specifying reasonable bounds, you decide to use a VAGUE and uninformative prior formulation.  
+
+You will use a Binomial likelihood and a conjugate Beta prior on the unknown event probability, $\mu$. For generality, you will denote each movie with a subscript $j$ and the total number of movies as $J$. Thus, the unknown event probability for the $j$-th movie is $\mu_j$ where $j=1,...,J$. The posterior distribution on the $j$-th movie's unknown event probability, $\mu_j$ given the $m_j$ events out of $N_j$ trials is proportional to:  
+
+$$ 
+p\left(\mu_j \mid \left( m, N \right)_j \right) \propto \mathrm{Binomial}\left(m_j \mid \mu_j, N_j\right) \times \mathrm{Beta} \left( \mu_j \mid a, b\right)
+$$
+
+Notice that in the above posterior formulation, each movie has a potentially distinct event probability, $\mu_j$. The prior consists of two shape hyperparameters, $a$ and $b$. The **SAME** prior shape parameters are applied to every movie.  
+
+**You will assume prior shape parameters of $a=0.5$ and $b=0.5$. How many "prior trials" does this specification correspond to? Why do you think it represents being "uninformed" about the process?**  
+
+#### SOLUTION
+
+What do you think?  
+
+ By using  non-informative prior distribution used in Bayesian probability. It is called "uninformed" because it behaves well in various situations and remains invariant under transformation. The number of **prior trials** is determined by the sum of variables **a and b**, which is ***1** in the given case. Both variables ***a and b** are < 1, indicating higher uncertainty in the prior distribution regarding the underlying probability. However, as the number of observations increases, the impact of the prior on the posterior becomes minimal.
+
+
+
+
+### 1b)
+
+You are using a conjugate prior to the Binomial likelihood, for each movie.  
+
+**What type of distribution is the posterior for the unknown event probability, $\mu_j$, for each movie, $j=1,...,J$?**  
+
+#### SOLUTION
+
+What do you think?  
+
+
+  The conjugate prior distribution used in this case is a Beta distribution. It is employed alongside the Binomial likelihood to compute the posterior distribution for the unknown event probability for each movie. Consequently, the posterior distribution is also a Beta distribution.
+
+### 1c)
+
+**Write out the formula for the updated or posterior shape parameters, $a_{new,j}$ and $b_{new,j}$, based on each movie's observed number of events $m_j$ and observed number of trials $N_j$, as well as the prior shape parameters, $a$ and $b$.**  
+
+You do not have to derive the formula for these updated parameters. You may simply write their formula below.  
+
+#### SOLUTION
+
+Add your equation blocks here.  
+
+$$p(\mu_j | (m,N)_j) \propto \text{Binomial}(m_j | \mu_j, N_j) \times \text{Beta}(\mu_j | a, b)$$
+
+
+## The log-likelihood and log density of Beta Distribution:
+
+$$\log(p(m_j | \mu_j, N_j)) \propto m_j \log(\mu_j) + (N_j - m_j) \log(1 - \mu_j)$$
+
+$$\log(p(\mu_j | a, b)) \propto (a - 1) \log(\mu_j) + (b - 1) \log(1 - \mu_j)$$
+## Combining both expressions,
+$$m_j \log(\mu_j) + (N_j - m_j) \log(1 - \mu_j) + (a - 1) \log(\mu_j) + (b - 1) \log(1 - \mu_j) + (m_j + a - 1) \log(\mu_j) + (N_j - m_j + b - 1) \log(1 - \mu_j)$$
+## The coefficients as a new,j and b new,j:
+
+
+$$a_{\text{new},j} = a + m_j
+$$
+$$ a_{\text{new},j} = a + m_j$$
+
+
+
+
+
+
+### 1d)
+
+**What is the mean, 0.05 Quantile, 0.95 Quantile, and middle 90% uncertainty interval on the event probability according to the assumed "uninformed" prior?**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+## Mean 'Beta distribution':
+
+```{r}
+a_uninformed <- 0.5
+b_uninformed <- 0.5
+mean_uninformed <- a_uninformed / (a_uninformed + b_uninformed)
+
+```
+
+## Quantiles, ' 0.05 and 0.95 quantiles of a Beta distribution':
+
+```{r}
+q05_uninformed <- qbeta(0.05, a_uninformed, b_uninformed)
+q95_uninformed <- qbeta(0.95, a_uninformed, b_uninformed)
+
+```
+## Results:
+
+   We obtain the mean, 0.05 quantile, 0.95 quantile, and the middle 90% uncertainty interval for the event probability based on the uninformed prior.
+
+```{r}
+results <- c(mean_uninformed, q05_uninformed, q95_uninformed)
+print(results)
+
+```
+
+
+### 1e)
+
+**Based on your formula in Problem 1c), calculate the updated shape parameters for the `r nrow(df_focus)` movies in the `df_focus` `tibble`. You should add two columns using `mutate()` named `anew` and `bnew`. Assign your result to the `post_df_focus_from_vague` object.**  
+
+#### SOLUTION
+
+```{r}
+post_df_focus_from_vague <- df_focus %>% 
+                              mutate(anew = num_events + 0.5,
+                                     bnew = num_trials - num_events + 0.5)
+
+# Display the result
+head(post_df_focus_from_vague)
+```
+
+
+
+
+### 1f)
+
+**Calculate the Posterior Mean, Posterior 0.05 Quantile, and the Posterior 0.95 Quantile for each movie in `post_df_focus_from_vague`. You should add 3 columns using `mutate()` named `post_avg`, `post_q05`, and `post_q95`. Assign the result to the variable `summary_post_df_focus_from_vague`.**  
+
+#### SOLUTION
+
+```{r, solution_01f, eval=TRUE}
+summary_post_df_focus_from_vague <- post_df_focus_from_vague %>%
+                                      mutate(post_avg = anew / (anew + bnew), 
+                                             post_q05 =    qbeta(0.05,anew,bnew),  
+                                             post_q95 = qbeta(0.95,anew,bnew),
+                                            #MLE = num_events / num_trials
+                                            )
+head(summary_post_df_focus_from_vague)
+```
+
+
+### 1g)
+
+You will now visualize the posterior summaries for the `r nrow(df_focus)` movies associated with the `df_focus` data set. The bold face font below provides specific instructions for visualizing the posterior summaries for this problem. Please read the instructions CAREFULLY! That said, you are free to set colors as you wish.  
+
+**Pipe `summary_post_df_focus_from_vague` into `ggplot()` and map the `x` aesthetic to `as.factor(movie_id)`. You will use the `geom_linerange()` to represent the posterior uncertainty by setting the `ymin` and `ymax` aesthetics to `post_q05` and `post_q95`, respectively. You will display the posterior mean with a `geom_point()` by setting the `y` aesthetic to `post_avg`.**  
+
+**Include the maximum likelihood estimate (MLE) on the event probability as an additional `geom_point()` geom by mapping the `y` aesthetic to the correct value, which you must calculate.**  
+
+**Are there movies with MLEs that are outside the posterior uncertainty interval? Are there movies with posterior mean values that are quite close to the MLEs?**  
+
+#### SOLUTION
+
+$$(1 - \mu_{\text{MLE},j}) \cdot m_j - \mu_{\text{NLE},j} \cdot (N_j - m_j) \cdot \mu_{\text{MLE},j} \cdot (1 - \mu_{\text{MLE},j}) = 0
+$$
+
+$$m_j\mu_{\text{MLE},j} - \frac{N_j - m_j}{1 - \mu_{\text{MLE},j}} = 0
+$$
+
+$$\mu_{\text{MLE},j} = \frac{m_j}{N_j}
+$$
+
+```{r}
+summary_post_df_focus_from_vague %>% 
+ggplot(aes(x = as.factor(movie_id))) + 
+  geom_linerange(aes(ymin = post_q05, ymax = post_q95, color = "90% Posterior Interval"), alpha = 0.6) +
+  geom_point(aes(y = post_avg, color = "Posterior Mean"), size = 3) +
+  geom_point(aes(y = num_events / num_trials, color = "MLE"), shape = 4, size = 3) +
+  scale_color_manual(values = c("90% Posterior Interval" = "blue", "Posterior Mean" = "red", "MLE" = "green")) +
+  labs(
+    title = "Posterior Summaries for Probability of Positive Review by Movie",
+    y = "Probability of Positive Review",
+    x = "Movie ID"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+
+What do you think?  
+
+ The analysis finds that Maximum Likelihood Estimates (MLEs) largely align with Bayesian posterior means for most movies, signifying strong data influence, while the prior choice has minimal impact. However, some movies have MLEs outside Bayesian intervals, emphasizing the difference between Bayesian and frequentist approaches. Uncertainty varies among movies, tied to data availability, and Bayesian intervals provide nuanced views for movies with extreme MLEs. In essence, this analysis contrasts Bayesian intervals with frequentist estimates, offering valuable insights for decision-making in areas like recommendation systems.
+
+
+
+### 1h)
+
+**You will create a similar visualization to that from Problem 1g), except you will map the `x` aesthetic to `as.factor(num_trials)` instead of mapping the `x` aesthetic to `as.factor(movie_id)`. You must also map the `group` aesthetic in each geom to the `movie_id` variable. Doing so allows you to DODGE the posterior summaries for each movie associated with each `num_trials` value.**  
+
+To properly apply the dodging, set the `position` argument to be `position = position_dodge(0.2)` in `geom_linerange()` and both `geom_point()` calls. You should not place `position` inside `aes()`, it should be outside `aes()`.  
+
+**Based on your visualization, which movies have high posterior uncertainty on the event probability?**  
+
+#### SOLUTION
+
+
+```{r}
+
+summary_post_df_focus_from_vague %>% 
+ggplot(  aes(x = as.factor(num_trials))) + 
+  # 90% posterior interval
+  geom_linerange(aes(ymin = post_q05, ymax = post_q95, group = movie_id, color = "90% Posterior Interval"), position = position_dodge(0.2), alpha = 0.6) +
+  # Posterior mean
+  geom_point(aes(y = post_avg, group = movie_id, color = "Posterior Mean"), position = position_dodge(0.2), size = 3) +
+  # MLEs
+  geom_point(aes(y = num_events / num_trials, group = movie_id, color = "MLE"), position = position_dodge(0.2), shape = 4, size = 3) +
+  labs(
+    title = "Posterior Summaries for Probability of Positive Review by Number of Trials",
+    y = "Probability of Positive Review",
+    x = "Number of Trials"
+  ) +
+  scale_color_manual(values = c("90% Posterior Interval" = "blue", "Posterior Mean" = "red", "MLE" = "green")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+ 
+
+
+What do you think?  
+
+
+Sample Size and Confidence: More reviews (num_trials) lead to narrower 90% posterior intervals, indicating greater confidence in estimating positive review probabilities.
+
+High Uncertainty for Few Reviews: Movies with very few reviews have wide intervals, showing high uncertainty due to limited data.
+
+MLEs and Bayesian Estimates: MLEs and Bayesian means align closely for movies with more reviews, indicating data's dominance in shaping estimates.
+
+Outliers and MLEs: Some movies, especially with few reviews, have MLEs outside intervals, suggesting lower credibility in the Bayesian framework.
+
+Variability in Movie Reception: Movies with the same review count vary in their perceived likability.
+
+Clarity with Dodging: Dodging separates movies with the same review count, enhancing visualization clarity.
+
+In essence, this visualization reveals our beliefs about positive reviews for each movie, emphasizing sample size's role in confidence and the value of Bayesian methods in handling uncertainty.
+
+**--------------------------------**
+### Strat using **df_all**
+
+### 1i)
+
+You will now calculate the posteriors for **ALL** movies based on the uninformed or VAGUE prior. Thus, you will NOT work with the limited number of movies in the "focused" data set.  
+
+**Calculate the updated shape parameters for ALL movies in the `df_all` `tibble`. You should add two columns using `mutate()` named `anew` and `bnew`. Assign your result to the `post_df_all_from_vague` object.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+post_df_all_from_vague <- df_all %>% 
+  mutate(
+    anew = num_events + 0.5,
+    bnew = num_trials - num_events + 0.5
+  )
+
+# Display the result
+head(post_df_all_from_vague)
+```
+
+
+
+
+
+### 1j)
+
+**Calculate the Posterior Mean, 0.05 Quantile, and 0.95 Quantile for each movie in `post_df_all_from_vague`. You should add 3 columns using `mutate()` named `post_avg`, `post_q05`, and `post_q95`. Assign the result to the variable `summary_post_df_all_from_vague`.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+
+summary_post_df_all_from_vague <- post_df_all_from_vague %>%
+  mutate(
+    post_avg = anew / (anew + bnew),  
+    post_q05 = qbeta(0.05, anew, bnew),  
+    post_q95 = qbeta(0.95, anew, bnew)  
+  )
+
+
+head(summary_post_df_all_from_vague)
+
+```
+
+
+### 1k)
+
+You will now visualize the Posterior Mean, based on the uninformed or VAGUE prior, relative to the Maximum Likelihood Estimate for the event probability.  
+
+**Create a scatter plot with `ggplot2` where you plot the `post_avg` with respect to the maximum likelihood estimate to the unknown event probability for all movies. Map the `color` aesthetic to `num_trials` and include a `geom_abline()` layer with `slope = 1` and `intercept=0`.**  
+
+
+
+```{r}
+summary_post_df_all_from_vague %>% 
+ggplot( aes(x = num_events / num_trials, y = post_avg, color = num_trials)) + 
+  geom_point(alpha=0.6) + 
+  geom_abline(slope = 1, intercept = 0, linetype="dashed", color="red") +
+  scale_color_viridis_c() +
+  labs(
+    title = "Posterior Mean vs. Maximum Likelihood Estimate",
+    y = "Posterior Mean (post_avg)",
+    x = "Maximum Likelihood Estimate (MLE)",
+    color = "Number of Trials"
+  ) +
+  theme_minimal()
+```
+
+### 1l)
+
+**Create a scatter plot for the Posterior middle 90% uncertainty interval range (difference between the 0.95 and 0.05 Quantiles) with respect to the `num_trials` using `ggplot2`. Include the `scale_x_log()` layer to transform the `x` aesthetic scale via the `log10()` function.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+# Calculate the 90% uncertainty range
+
+```{r}
+summary_post_df_all_from_vague %>% 
+ggplot( aes(x = num_trials, y = post_q95 - post_q05, color = num_trials)) + 
+  geom_point(alpha=0.6) + 
+  scale_x_log10() +
+  scale_color_viridis_c(trans="log10", name="Number of Trials") +
+  labs(
+    title = "Posterior 90% Interval Range vs. Number of Trials",
+    y = "Posterior 90% Interval Range",
+    x = "Number of Trials (log scale)"
+  ) +
+  theme_minimal() +
+  theme(legend.position="right")
+
+```
+
+
+## Problem 02
+
+In Problem 01, you estimated the unknown event probability for each movie separately from all other movies. Essentially, you were focused on one movie at a time. This style of analysis is known as the **UNPOOLED ESTIMATE**, since you are not combining or "pooling" the movies (or in general terms the "groups") together.  
+
+The opposite view point is to **COMPLETELY POOL** all movies together in order to estimate a SINGLE unknown event probability $\mu$. For this, you will assume that all movies are independent. Thus the posterior distribution on the unknown "pooled" event probability, $\mu$, is proportional to:  
+
+$$ 
+p \left( \mu \mid \left( \left(m, N\right)_j \right)_{j=1}^{J} \right) \propto \prod_{j=1}^{J} \left( \mathrm{Binomial} \left(m_j \mid \mu, N_j \right) \right) \times \mathrm{Beta} \left(\mu \mid a, b\right)
+$$
+
+Pay close attention to the subscripts in the above expression. And notice that the prior on the "pooled" unknown $\mu$ relies on the prior shape parameters $a$ and $b$.  
+
+### 2a)
+
+**Write out the log-posterior on the pooled unknown $\mu$ up to a normalizing constant in terms of the observations, $m_j$ and $N_j$ for $j=1,...,J$, and the prior shape parameters, $a$ and $b$. Your result should contain a summation series over the $J$ movies.**  
+
+#### SOLUTION
+Add as many equation blocks as you feel are necessary to show the steps to derive the answer.
+
+$$\log(p(\mu | ((m, N)_j)_{j=1}^J)) \propto \sum_{j=1}^J \left( \log\left(\mu^{m_j}(1-\mu)^{N_j - m_j}\right) \right) + \log\left(\mu^{a-1}(1-\mu)^{b-1}\right)$$
+$$\log(p(\mu | ((m, N)_j)_{j=1}^J)) \propto \log(\mu) \sum_{j=1}^J (m_j) + \log(1-\mu) \sum_{j=1}^J (N_j - m_j) + (a-1) \log(\mu) + (b-1) \log(1-\mu)$$
+$$\log(p(\mu | ((m, N)_j)_{j=1}^J)) \propto \log(\mu) \sum_{j=1}^J (m_j) + \log(1-\mu) \sum_{j=1}^J (N_j) - \log(1-\mu) \sum_{j=1}^J (m_j) + (a-1) \log(\mu) + (b-1) \log(1-\mu)$$
+
+
+  
+
+### 2b)
+
+The summation series in your solution to 2a) can be simplified by using the average number of events, $\bar{m}$ and the average number of trials $\bar{N}$. The average number of events is defined as:  
+
+$$ 
+\bar{m} = \frac{1}{J} \sum_{j=1}^{J} \left( m_j \right)
+$$
+
+and the average number of trials is defined as:  
+
+$$ 
+\bar{N} = \frac{1}{J} \sum_{j=1}^{J} \left( N_j \right)
+$$
+
+
+**Write your result from 2a) in terms of $\bar{m}$, $\bar{N}$, $J$, and the prior shape parameters $a$ and $b$.**  
+
+#### SOLUTION
+
+Add as many equation blocks as you feel are necessary to show the steps to derive the answer.  
+
+$$\log(p(\mu | ((m, N)_j)_{j=1}^J)) \propto J\bar{m} \log(\mu) + J\bar{N} \log(1-\mu) - J\bar{m} \log(1-\mu) + (a-1) \log(\mu) + (b-1) \log(1-\mu)$$
+$$log(p(μ∣((m,N)j)Jj=1))∝(Jm¯+a−1)log(μ)+(JN¯−Jm¯+b−1)log(1−μ)$$
+
+
+### 2c)
+
+Your expression in 2b) should look familiar.  
+
+**What type of posterior distribution does the unknown "pooled" estimate $\mu$ have?**  
+
+**Write out the formulas for the posterior or updated shape parameters for your specified posterior distribution.**  
+
+#### SOLUTION
+Add as many equation blocks as you feel are necessary to show the steps to derive the answer.  
+
+
+$$a_{\text{new}} = a + J\bar{m}$$
+
+$$b_{\text{new}} = b + J\bar{N} - J\bar{m}$$
+
+What do you think?  
+
+  Pooled estimates combine data from all movies for a single positive review probability, while unpooled estimates assess each movie separately, offering more nuanced insights; the choice depends on analysis goals.
+
+It’s beta distribution.
+
+
+
+### 2d)
+
+Let's use your formulas to learn the completely pooled estimate for the event probability. You will still assume an uninformed or VAGUE prior and thus use $a=b=0.5$ as you did in Problem 01. It is important to remember that you are pooling **ALL** movies together to learn the pooled estimate, **NOT** just those in the focused set. You are using the focused set of movies right now for visualization purposes.  
+
+**Based on your formula in Problem 2c), calculate the updated shape parameters for the `r nrow(df_focus)` movies in the `df_focus` `tibble`. You should add two columns using `mutate()` named `anew` and `bnew`. Assign your result to the `post_df_focus_pooled` object.**  
+
+#### SOLUTION
+
+```{r, solution_02d, eval=TRUE}
+post_df_focus_pooled <- df_focus %>%
+                      mutate(anew = sum(num_events) +
+                               0.5,bnew = sum(num_trials) - 
+                               sum(num_events) + 0.5)
+head(post_df_focus_pooled)
+
+```
+
+
+### 2e)
+
+**Calculate the Posterior Mean, Posterior 0.05 Quantile, and Posterior 0.95 Quantile for each movie in `post_df_focus_pooled`. You should add 3 columns using `mutate()` named `post_avg`, `post_q05`, and `post_q95`. Assign the result to the variable `summary_post_df_focus_pooled`.**  
+
+#### SOLUTION
+
+```{r, solution_02e, eval=TRUE}
+summary_post_df_focus_pooled <- post_df_focus_pooled %>% 
+                               mutate( post_avg = anew / (anew + bnew),
+                                       post_q05 = qbeta(0.05,anew,bnew),
+                                       post_q95 = qbeta(0.95,anew,bnew),
+                                       MLE = num_events / num_trials)
+head(summary_post_df_focus_pooled)
+```
+
+### 2f)
+
+**Pipe `summary_post_df_focus_pooled` into `ggplot()` and map the `x` aesthetic to `as.factor(movie_id)`. You will use the `geom_linerange()` to represent the posterior uncertainty by setting the `ymin` and `ymax` aesthetics to `post_q05` and `post_q95` respectively. You will display the posterior mean with a `geom_point()` by setting the `y` aesthetic to `post_avg`. Include the maximum likelihood estimate (MLE) on the event probability for EACH movie as an additional `geom_point()` geom by mapping the `y` aesthetic to the correct value, which you must calculate.**  
+
+**Are there movies with MLEs that are outside the posterior uncertainty interval? Are there movies with posterior mean values that are quite close to the MLEs?**  
+
+#### SOLUTION
+
+```{r}
+summary_post_df_focus_pooled %>%
+  ggplot(aes(x = as.factor(movie_id))) +
+
+  geom_bar(aes(y = post_avg, ymin = post_q05, ymax = post_q95, fill = "Credible Interval"), stat = "identity", position = position_dodge()) +
+  
+
+  geom_point(aes(y = post_avg, color = "Posterior Mean"), size = 3, position = position_dodge(0.6)) +
+
+  geom_point(aes(y = MLE, color = "MLE"), size = 3, shape = 4, position = position_dodge(0.6)) +
+
+  labs(
+    x = "Movie ID",
+    y = "Probability of Positive Review",
+    title = "Posterior Summaries for Probability of Positive Review by Movie (pooled)",
+    fill = "Legend",
+    color = "Legend",
+    shape = "Legend"
+  ) +
+
+  scale_fill_manual(values = c("Credible Interval" = 'blue' )) +
+  scale_color_manual(values = c("Posterior Mean" = "red", "MLE" = "black ", size = 2)) +
+  scale_shape_manual(values = c("MLE" = 2)) +
+  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    coord_flip()
+```
+
+
+What do you think?  
+
+The visualization displays 95% credible intervals (blue bars) representing our confidence in movie review probabilities. Red dots show posterior means, and green triangles are Maximum Likelihood Estimates (MLEs). Notably, posterior means often align with MLEs, but varying blue bar widths reflect uncertainty tied to sample size. MLEs can fall outside credible intervals, particularly for movies with limited data, illustrating Bayesian cautiousness in estimation. In essence, this visualization illustrates how Bayesian methods incorporate data and prior information for more nuanced probability estimates.
+
+### 2g)
+
+Your visualization in Problem 2f) should not "feel right". Something should seem off.  
+
+**Why does the "POOLED" estimate seem incorrect for this application?**  
+
+#### SOLUTION
+
+What do you think?  
+
+
+  The "POOLED" estimate may feel incorrect in this application because it assumes all movies have the same probability of positive reviews, overlooking the diverse factors influencing movie reception. This oversimplification might lead to biased results, as individual movie characteristics are not considered. A more nuanced approach is needed to account for these differences.
+
+## Problem 03
+
+You have now worked through two extremes, the **UNPOOLED** and the completely **POOLED** estimates on the unknown event probabilities. You will now try to **BLEND** the two approaches to reach a compromise by using the Empirical Bayes approach.  
+
+As stated at the beginning of the document, Empirical Bayes estimates the prior from data. In this setting you are interested in deciding informative values for the prior shape parameters, $a$ and $b$, of the Beta prior on each $\mu_j$. If you have a relevant informative prior you will be able to apply that prior to each movie separately (the unpooled approach) while "borrowing strength" from the rest of the data. The Empirical Bayes approach is an approximation to more formal **PARTIAL POOLING** models where groups with larger sample sizes help estimate parameters associated with small sample size groups. Empirical Bayes is useful when there are hundreds to thousands of separate groups. Estimating the prior shape parameters from many groups allows specifying relevant informative priors without requiring numerous conversations with Subject Matter Experts (SMEs) and allows the data to provide representative bounds.  
+
+### 3a)
+
+The Beta prior defines the prior belief on a probability (a fraction or proportion). From an Empirical Bayes approach, you can therefore view the "data" of interest as the observed "positive review rate".  
+
+**Plot the histogram of the "positive review rate" for all movies in the `df_all` data set. Use the `geom_histogram()` geom and set the `binwidth` to be 0.05.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+
+```{r, 3b1,eval=TRUE}
+df_all <- df_all %>%
+  mutate(positive_review_rate = num_events / num_trials)
+```
+
+
+```{r}
+df_all %>% 
+ggplot( aes(x = positive_review_rate)) +
+  geom_histogram(binwidth = 0.05, fill = "blue", color = "black") +
+  labs(title = "Histogram of Positive Review Rate for All Movies",
+       x = "Positive Review Rate",
+       y = "Frequency")
+
+```
+
+
+### 3b)
+
+**Plot the histogram for all "positive review rates" in the `df_all` data set again. However, this time use `facet_wrap()` to break up the visualization into `num_trials > 30`.**  
+
+**What can you say about the observations of the movies with greater than 30 reviews?**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary. 
+
+
+
+
+```{r}
+df_all %>%
+
+  ggplot(mapping = aes(x = positive_review_rate)) +
+  geom_histogram(binwidth = 0.05, fill = "blue", color = "black") +
+  labs(
+    x = "Positive Review Rate",
+    y = "Frequency",
+    title = "Histogram of Positive Review Rates for Movies with >30 Reviews"
+  ) +
+  theme_minimal() +
+  facet_wrap(~num_trials > 30)
+```
+
+```{r}
+
+df_all$trial_group <- ifelse(df_all$num_trials > 30, "> 30 trials", "<= 30 trials")
+
+
+df_all %>%
+  ggplot(aes(x = positive_review_rate)) +
+  geom_histogram(binwidth = 0.05, fill = "blue", color = "black") +
+  labs(title = "Histogram of Positive Review Rate for All Movies by Trial Group",
+       x = "Positive Review Rate",
+       y = "Frequency") +
+facet_wrap(~ trial_group, scales = "free_y") +
+  theme_minimal()
+
+```
+
+
+What do you think?  
+
+
+
+  The histogram for all movies reveals a bimodal distribution with peaks around 0.2 and 0.8, while the one for movies with >30 reviews is left-skewed with a peak around 0.7-0.75. Movies with more reviews tend to have a more positive reception, suggesting review sample size impacts interpretation.
+  
+  
+### 3c)
+
+To keep things simple for this exam, you will estimate the prior shape parameters, $a$ and $b$, based only on the movies with greater than 30 reviews.  
+
+**Use the `filter()` function to keep all movies with greater than 30 reviews and assign the result to the `df_30` object. Use the `summary()` function to check the summary stats on `num_trials` to make sure you performed the operation correctly.**  
+
+#### SOLUTION
+
+```{r, solution_03c, eval=TRUE}
+df_30 <- df_all %>%
+  filter(num_trials > 30)
+
+summary(df_30$num_trials)
+
+```
+
+
+### 3d)
+
+Since the "positive review rate" is a fraction, we can use a Beta distribution as the likelihood of the "fraction" given the shape parameters. Those shape parameters, $a$ and $b$, are unknown and so you must estimate them from the data. Within the Empirical Bayes approach, you will treat this step as finding $a$ and $b$ which **maximize the likelihood**, and so you will not specify prior distributions on the parameters.  
+
+Each observation of the "positive review rate" is assumed conditionally independent given the unknown $a$ and $b$ shape parameters. The observed "positive review rate" will be denoted as, $\theta_j$, for each movie and is defined as:  
+
+$$ 
+\theta_j = \frac{m_j}{N_j}
+$$
+
+The likelihood on all $j=1,...,J$ "positive review rates" is therefore the product of $J$ conditionally independent Beta distributions:  
+
+$$ 
+p \left( \left(\theta_j\right)_{j=1}^{J} \mid a, b\right) = \prod_{j=1}^{J} \mathrm{Beta} \left( \theta_j \mid a, b \right)
+$$
+
+**You will define a log-likelihood function in the style of the log-posterior functions we have used so far this semester by completing the two code chunks below.**  
+
+**In the first code chunk, the list of required information, `info_for_ab`, is defined and contains a single variable `theta`. You must calculate it based on the movies in the `df_30` data set.**  
+
+**The second code chunk defines the `my_beta_loglik()` function. The first argument, `unknowns`, is the vector of unknown parameters. The second argument, `my_info`, is the list of required information. The comments and variable names provide hints for actions you should perform to calculate the log-likelihood.**  
+
+**The $a$ and $b$ parameters are lower-bounded at zero and thus you MUST apply the NATURAL LOG-TRANSFORMATION to both parameters. You must properly account for the log-derivative adjustment on both parameters when you calculate the log-likelihood.**  
+
+*NOTE*: Several test points are provided for you to check that you have coded your function correctly.  
+
+#### SOLUTION
+
+Define the list of required information. The observed data in your `my_beta_loglik()` must be named `theta`.  
+
+
+
+
+```{r, solution_03d_a, evaL=TRUE}
+info_for_ab <- list(
+  theta =  df_30$num_events / df_30$num_trials
+)
+```
+
+Define the Beta log-likelihood. The first element in `unknowns` is the log-transformed $a$ parameter and the second element is the log-transformed $b$ parameter. **You are allowed to use built-in density functions to complete this question.**  
+
+```{r}
+my_beta_loglik <- function(unknowns, my_info)
+{
+  # unpack the log-transformed shape parameters
+  log_a <- unknowns[1]
+  log_b <- unknowns[2]
+  
+  # back transform
+  a <- exp(log_a)
+  b <- exp(log_b)
+  
+  theta <- my_info$theta
+  
+  # calculate the log-likelihood for all observations
+  log_lik <- log_lik <- sum(dbeta(theta, a, b, log = TRUE))
+  
+  # account for the change of variables
+  
+  log_lik <- log_lik + log_a + log_b
+  
+  return(log_lik)
+}
+```
+
+
+Try out values of -2 for both log-transformed parameters. If your function is coded correctly you should get a value of -3968.915.  
+
+```{r, solution_03d_c}
+loglik_result_c <- my_beta_loglik(c(-2, -2), info_for_ab)
+loglik_result_c
+
+```
+
+Try out values of 2.5 for both log-transformed parameters. If your function is coded correctly you should get a value of -2963.884.  
+
+```{r, solution_03d_d}
+
+loglik_result_d <- my_beta_loglik(c(2.5, 2.5), info_for_ab)
+loglik_result_d
+
+```
+
+
+
+### 3e)
+
+You will now identify the maximum likelihood estimates for $a$ and $b$. You should use the `optim()` function to manage the optimization for you. Be sure to specify the arguments to `optim()` to make sure that `optim()` knows to *MAXIMIZE* and not *MINIMIZE* the function. Set the `method` argument to `"BFGS"` when you call `optim()`. The gradient argument should be set to `NULL`, `gr=NULL`.  
+
+**Try out two different starting guesses values. The first guess, `init_guess_01`, should be zeros for both parameters and the second guess, `init_guess_02`, should be -1 for both parameters.**  
+
+**Assign your `optim()` results to `log_ab_opt_01` and `log_ab_opt_02`.**  
+
+**Do you get the same parameter estimates regardless of your initial guess?**  
+
+#### SOLUTION
+
+Set the initial guesses.  
+
+```{r, solution_03e, eval=TRUE}
+init_guess_01 <- c(0, 0)
+init_guess_02 <- c(-1, -1)
+```
+
+Perform the optimization using the first starting guess.  
+
+```{r, solution_03e_b, eval=TRUE}
+log_ab_res_01 <- optim( init_guess_01,
+                        my_beta_loglik ,
+                        gr= NULL,
+                        info_for_ab,
+                        method = "BFGS",
+                        hessian = TRUE,
+                       control = list(fnscale = -1))
+log_ab_res_01
+                        
+                        
+
+```
+
+Perform the optimization using the second starting guess.  
+
+```{r, solution_03e_c, eval=TRUE}
+log_ab_res_02 <- optim(init_guess_02, my_beta_loglik ,
+                        gr= NULL,
+                        info_for_ab,
+                        method = "BFGS",
+                        hessian = TRUE,
+                       control = list(fnscale = -1)) 
+
+log_ab_res_02
+# table_log_ab_res_02 <- data.frame(Parameter = c("log(a)", "log(b)", "Objective Value"),
+#                                   Value = c(log_ab_res_02$par, log_ab_res_02$value))
+# 
+# table_log_ab_res_02
+```
+
+**Are the identified log-transformed estimates the same?**  
+
+
+  Yes, the estimates are effectively the same for both starting guesses, showcasing the robustness of the optimization procedure
+
+### 3f)
+
+The optimal parameters in the Problem 3e) are in the log-transformed space.  
+
+**You must back-transform them to calculate the estimates for the prior $a$ and $b$ shape hyperparameters. Assign the back-transformed parameters to `ab_emp_bayes`.**  
+
+**How many a-priori trials does your estimated hyperparameters represent?**  
+
+#### SOLUTION
+
+```{r, solution_03f, eval=TRUE}
+ab_emp_bayes <- c(a = exp(log_ab_res_01$par[1]), b = exp(log_ab_res_02$par[2]))
+
+table_ab_emp_bayes <- data.frame(Parameter = names(ab_emp_bayes), 
+                                 Value = as.numeric(ab_emp_bayes))
+
+table_ab_emp_bayes
+```
+How many a-priori trials?  
+
+```{r}
+sum(ab_emp_bayes)
+```
+
+There are 5.436729 a-prior trials.
+
+
+### 3g)
+
+You will now visualize the prior distribution you calculated using the Empirical Bayes approach and compare it to the histogram of the observed "positive reviews rates" for all movies with more than 30 reviews.  
+
+**Complete the two code chunks below. In the first, set the `x` variable within the `prior_for_viz` `tibble` to be 1001 evenly spaced points between the minimum observed POSITIVE review rate in `df_30` and the maximum observed POSITIVE review rate in `df_30`. Pipe the result into `mutate()` and calculate the beta density using the `ab_emp_bayes` shape parameters and assign the result to the `beta_pdf` variable.**  
+
+**In the second code chunk, pipe the `df_30` `tibble` into `ggplot()` and map the `x` aesthetic to the observed positive review rates. Use a `geom_histogram()` geom and set the `binwidth` to be 0.05. Modify the `y` aesthetic so that way `geom_histogram()` displays the estimated density on the `y` axis instead of the count. To do so you must set `y=after_stat(density)` within `aes()`. Include a `geom_line()` geom and specify the `data` argument to be the `prior_for_viz` object and map the `x` and `y` aesthetics to `x` and `beta_pdf`, respectively. Set the `color` argument (outside the `aes()` call) to be `'red'` and the `linewidth` argument to 1.15.**  
+
+**How does the empirically derived prior distribution on the event probability compare to the observed histogram of the POSITIVE review rates?**  
+
+**IMPORTANT**: If you are *not* comfortable with your `ab_emp_bayes` values, you may use `shape1=4` and `shape2=2.5`. These are **not** the correct answers, though they are in the right ballpark...  
+
+#### SOLUTION
+
+Calculate the Beta PDF based on the calculated prior hyperparameters.  
+
+```{r,Minimum-&-Maximum-observed-POSITIVE}}
+min_positive_rate <- min(df_30$positive_review_rate)
+max_positive_rate <- max(df_30$positive_review_rate)
+
+results_df <- data.frame(
+  Metric = c("Minimum Positive Rate", "Maximum Positive Rate"),
+  Value = c(min_positive_rate, max_positive_rate)
+)
+
+# Print the table using kable
+print(results_df)
+```
+
+
+```{r, solution_03g, eval=TRUE}
+prior_for_viz <- tibble::tibble(
+  x = seq(min_positive_rate, max_positive_rate,length.out = 1001)
+) %>% 
+  mutate(beta_pdf = dbeta(x,ab_emp_bayes[1],ab_emp_bayes[2]) )
+
+
+head(prior_for_viz)
+```
+
+Visualize the derived prior relative to the observed "POSITIVE review rates" in the data set.  
+
+
+```{r}
+ggplot(df_30, aes(x = positive_review_rate)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 0.05, fill = "blue", alpha = 0.75) +
+  geom_line(data = prior_for_viz, aes(x = x, y = beta_pdf), color = 'red', size = 1.15) +
+  labs(title = "Comparison of Observed Positive Review Rates and Empirical Bayes Prior",
+       x = "Positive Review Rate",
+       y = "Density") +
+  theme_minimal()
+```
+
+### 3h)
+
+**Calculate the Mean, 0.05 Quantile, 0.95 Quantile, and middle 90% uncertainty interval associated with your informative prior.**  
+
+*IMPORTANT*: If you are *not* comfortable with your `ab_emp_bayes` values, you may use `shape1=4` and `shape2=2.5`. These are **not** the correct answers, though they are in the right ballpark...  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+
+mean_beta <- ab_emp_bayes[1] / (ab_emp_bayes[1] + ab_emp_bayes[2])
+
+
+q_05 <- qbeta(0.05, ab_emp_bayes[1], ab_emp_bayes[2])
+q_95 <- qbeta(0.95, ab_emp_bayes[1], ab_emp_bayes[2])
+
+
+uncertainty_interval <- c(q_05, q_95)
+
+
+results_table <- data.frame(
+  Measure = c("Mean", "0.05 Quantile", "0.95 Quantile", "Lower Bound 90% U.I.", "Upper Bound 90% U.I."),
+  Value = c(mean_beta, q_05, q_95, uncertainty_interval[1], uncertainty_interval[2])
+)
+
+results_table
+
+```
+
+
+
+### 3i)
+
+**How do the Mean and middle 90% uncertainty intervals compare between the original uninformed prior and the Empirical Bayes derived informative prior?**
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary. What do you think?  
+```{r}
+# Uninformed Prior (Beta(1,1))
+mean_uninformed <- 1 / (1 + 1)
+quantile_05_uninformed <- qbeta(0.05, 1, 1)
+quantile_95_uninformed <- qbeta(0.95, 1, 1)
+
+# Empirical Bayes Derived Informative Prior
+mean_informed <- ab_emp_bayes[1] / (ab_emp_bayes[1] + ab_emp_bayes[2])
+quantile_05_informed <- qbeta(0.05, ab_emp_bayes[1], ab_emp_bayes[2])
+quantile_95_informed <- qbeta(0.95, ab_emp_bayes[1], ab_emp_bayes[2])
+
+results_table <- data.frame(
+  Prior_Type = c("Uninformed", "Empirical Bayes"),
+  Mean = c(mean_uninformed, mean_informed),
+  Quantile_05 = c(quantile_05_uninformed, quantile_05_informed),
+  Quantile_95 = c(quantile_95_uninformed, quantile_95_informed)
+)
+
+print(results_table)
+
+```
+
+  both uninformed and empirical Bayes priors have similar means, implying that empirical data supports a 50% positive review rate expectation. However, Empirical Bayes leads to a narrower middle 90% uncertainty interval, indicating more precise estimates and reduced likelihood of extreme values.
+  
+
+
+## Problem 04
+
+You now have everything in place to calculate the posterior on the event probability associated with each movie, $\mu_j$. The $a$ and $b$ parameters that you had originally set to 0.5, are now equal to your Empirical Bayes estimated values.  
+
+If you are not comfortable with your estimates you may use the same values as in Problem 3g) of `shape1=4` and `shape2=2.5`.  
+
+### 4a)
+
+**Calculate the updated or new shape parameters for the movies in the `df_focus` `tibble`. You should add two columns using `mutate()` named `anew` and `bnew`. Assign your result to the `post_df_focus_empbayes` object.**  
+
+#### SOLUTION
+
+```{r, solution_04a, eval=TRUE}
+ shape1 <- 4
+ shape2 <- 2.5
+post_df_focus_empbayes <- df_focus %>% 
+                          mutate( anew = num_events +  shape1,
+                                  bnew = num_trials +  shape2)
+head(post_df_focus_empbayes)
+```
+
+### 4b)
+
+**Calculate the posterior Mean, Posterior 0.05 Quantile, and Posterior 0.95 Quantile for each movie in `post_df_focus_empbayes`. You should add 3 columns using `mutate()` named `post_avg`, `post_q05`, and `post_q95`. Assign the result to the variable `summary_post_df_focus_empbayes`.**  
+
+#### SOLUTION
+
+```{r, solution_04b, eval=TRUE}
+summary_post_df_focus_empbayes <- post_df_focus_empbayes %>% 
+                                 mutate(
+                                         post_avg = anew / (anew + bnew),
+                                         post_q05 = qbeta(0.05,anew,bnew) ,
+                                         post_q95 = qbeta(0.95,anew,bnew)) 
+                                  
+head(summary_post_df_focus_empbayes)                            
+```
+### 4c)
+
+You will repeat the visualizations from Problem 1) to understand the effect of your informative prior distribution.  
+
+**Pipe `summary_post_df_focus_empbayes` into `ggplot()` and map the `x` aesthetic to `as.factor(movie_id)`. You will use the `geom_linerange()` to represent the posterior uncertainty by setting the `ymin` and `ymax` aesthetics to `post_q05` and `post_q95` respectively. You will display the posterior mean with a `geom_point()` by setting the `y` aesthetic to `post_avg`. Include the maximum likelihood estimate (MLE) on the event probability as an additional `geom_point()` geom by mapping the `y` aesthetic to the correct value, which you must calculate.**  
+
+**How does this visualization compare to those you made using the vague unpooled estimate and the completely pooled estimate?**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary. 
+
+```{r}
+summary_post_df_focus_empbayes %>%
+  ggplot(aes(x = as.factor(movie_id))) +
+  
+  geom_linerange(aes(ymin = post_q05, ymax = post_q95, color = "uncertainty"), size = 1) +
+  
+  geom_point(aes(y = post_avg, color = "Posterior Mean"), size = 3) +
+  
+  geom_point(aes(y = num_events/num_trials, color = "MLE"), size = 2, alpha = 0.6) +
+  
+  labs(y = "Positive Review Rate",
+       x = "Movie ID",
+       title = "Posterior Estimates with Informative Prior",
+       color = "Estimate Type") +  
+  
+   scale_color_manual(values = c("Posterior Mean" = "red", 
+                                "MLE" = "green", 
+                                "uncertainty" = "blue")) + 
+  theme_minimal() 
+
+```
+
+```{r}
+summary_post_df_focus_empbayes %>%
+  ggplot(aes(x = as.factor(movie_id))) +
+  
+  geom_linerange(aes(ymin = post_q05, ymax = post_q95, color = "uncertainty"), size = 1) +
+  
+  geom_point(aes(y = post_avg, color = "Posterior Mean"), size = 3) +
+  
+  geom_point(aes(y = num_events/num_trials, color = "MLE"), size = 2, alpha = 0.6) +
+  
+  labs(y = "Positive Review Rate",
+       x = "Movie ID",
+       title = "Posterior Estimates with Informative Prior",
+       color = "Estimate Type") +  
+  
+   scale_color_manual(values = c("Posterior Mean" = "red", 
+                                "MLE" = "green", 
+                                "uncertainty" = "blue")) + 
+  theme_minimal() +
+    coord_flip()
+
+
+```
+
+### 4d)
+
+**You will create a similar visualization, except instead of mapping the `x` aesthetic to `as.factor(movie_id)` you will map the `x` aesthetic to `as.factor(num_trials)`. You must also map the `group` aesthetic in each geom to the `movie_id` variable. Doing so allows you "dodge" the posterior summaries for each movie associated with each `num_trials` value.**  
+
+To properly apply the dodging, set the `position` argument to be `position = position_dodge(0.2)` in `geom_linerange()` and both `geom_point()` calls. You should not place `position` inside `aes()`, it should be outside `aes()`.  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+
+```{r}
+summary_post_df_focus_empbayes %>%
+  ggplot(aes(x = as.factor(num_trials))) +
+  
+  # 90% Credible Intervals (Highlighting Uncertainty)
+  geom_linerange(aes(ymin = post_q05, ymax = post_q95, color = "uncertainty", group = movie_id), 
+                 position = position_dodge(0.2)) +
+  
+  # Posterior Means
+  geom_point(aes(y = post_avg, color = "Posterior Mean", group = movie_id), 
+             position = position_dodge(0.2), size = 3) +
+  
+  # MLEs
+  geom_point(aes(y = num_events/num_trials, color = "MLE", group = movie_id), 
+             position = position_dodge(0.2), size = 2, alpha = 0.6) +
+  
+  # Titles and Labels
+  labs(y = "Positive Review Rate",
+       x = "Number of Trials",
+       title = "Posterior Estimates with Informative Prior by Number of Trials",
+       color = "Estimate Type") +   # This line labels the legend
+  
+  # Color Specifications
+  scale_color_manual(values = c("Posterior Mean" = "red", 
+                                "MLE" = "green", 
+                                "uncertainty" = "blue")) + 
+  theme_minimal() +
+  
+  # Flip the coordinates for a horizontal view
+  coord_flip()
+
+```
+
+### 4e)
+
+You will now calculate the posteriors for **ALL** movies using the Empirical Bayes approach, not just the limited number of movies in the "focused" data set.  
+
+**Calculate the updated shape parameters for all movies in the **`df_all`** `tibble`. You should add two columns using `mutate()` named `anew` and `bnew`. Assign your result to the `post_df_all_empbayes` object.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+ shape1 <- 4
+ shape2 <- 2.5
+ 
+post_df_all_empbayes <- df_all %>% 
+                              mutate(
+                                anew = num_events + shape1,
+                                bnew = num_trials - num_events + shape2
+                                    )
+
+head(post_df_all_empbayes[, c("movie_id", "anew", "bnew")])
+                              
+```
+
+
+### 4f)
+
+**Calculate the Posterior Mean, Posterior 0.05 Quantile, and Posterior 0.95 Quantile for each movie in `post_df_all_empbayes`. You should add 3 columns using `mutate()` named `post_avg`, `post_q05`, and `post_q95`. Assign the result to the variable `summary_post_df_all_empbayes`.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+ shape1 <- 4
+ shape2 <- 2.5
+ 
+summary_post_df_all_empbayes <- post_df_all_empbayes %>% 
+                              mutate(
+                                       post_avg = anew / (anew + bnew),
+                                       post_q05 = qbeta(0.05, anew, bnew),
+                                       post_q95 = qbeta(0.95, anew, bnew),
+                                       mle = num_events / num_trials,
+                                       post_mean = anew / (anew + bnew))
+
+head(summary_post_df_all_empbayes[, c("movie_id", "post_avg", "post_q05", "post_q95")])
+```
+
+
+### 4g)
+
+You will now visualize the Posterior Mean, based on the Empirical Bayes informative prior, relative to the Maximum Likelihood Estimate for the event probability.  
+
+**Create a scatter plot with `ggplot2` where you plot the `post_mean` with respect to the maximum likelihood estimate to the unknown event probability for all movies. Map the `color` aesthetic to the conditional test `num_trials > 30` and include a `geom_abline()` layer with `slope = 1` and `intercept=0`. You are therefore coloring by a discrete or binarized version of the `num_trials` rather than the continuous value.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+## Posterior Mean and MLE for each movie
+# ```{r}
+# post_df_all_empbayes <- post_df_all_empbayes %>%
+#   mutate(post_mean = anew / (anew + bnew),
+#          mle = num_events / num_trials)
+# 
+# head(post_df_all_empbayes)
+# ```
+
+```{r}
+summary_post_df_all_empbayes %>% 
+                    ggplot( aes(x = mle, y = post_mean, 
+                                color = num_trials > 30)) +
+                                geom_point(alpha = 0.6) +
+                                geom_abline(slope = 1, intercept = 0) +
+                                labs(title = "Posterior Mean vs. MLE",
+                                       x = "Maximum Likelihood Estimate",
+                                       y = "Posterior Mean",
+                                        color = "More than 30 reviews?") +
+                                 theme_minimal()
+  
+```
+
+```{r}
+summary_post_df_all_empbayes %>% 
+ggplot(aes(x = num_events/num_trials,y = post_avg)) +
+  geom_point(mapping = aes(x = num_events/num_trials,y = post_avg,color = num_trials)) +
+  geom_abline(slope = 1,intercept = 0)
+```
+
+
+
+### 4h)
+
+**Create a scatter plot for the Posterior middle 90% uncertainty interval range (difference between the 0.95 and 0.05 Quantiles) with respect to the `num_trials` using `ggplot2`. Include the `scale_x_log()` layer to transform the `x` aesthetic scale via the `log10()` function.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary. 
+
+```{r}
+summary_post_df_all_empbayes <- summary_post_df_all_empbayes %>%
+  mutate(interval_range = post_q95 - post_q05)
+head(summary_post_df_all_empbayes)
+```
+
+```{r}
+summary_post_df_all_empbayes %>% 
+                    ggplot(aes(x = num_trials, y = interval_range)) +
+                      geom_point(alpha = 0.6) +
+                      scale_x_log10() +
+                      labs(
+                        title = "Posterior middle 90% Uncertainty Interval Range                                     vs. Number of Trials (Log Scale)",
+                            x = "Number of Trials (Log Scale)",
+                           y = "Middle 90% Uncertainty Interval Range") +
+  theme_minimal()
+```
+##  highlight the main trends and patterns in the dat
+
+
+```{r}
+summary_post_df_all_empbayes %>% 
+ggplot( aes(x = num_trials, y = interval_range, color = num_trials)) +
+  geom_point(alpha = 0.6, size = 2) +
+  scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  geom_smooth(method = "loess", se = TRUE, color = "red", size = 1) +
+  scale_color_gradient(low = "blue", high = "red", name = "Number of Trials") +  # gradient based on num_trials
+  labs(
+    title = "Relationship between Number of Trials and Uncertainty Interval Range",
+    subtitle = "Posterior middle 90% uncertainty interval range vs. number of trials (log scale)",
+    x = "Number of Trials (Log Scale)",
+    y = "Middle 90% Uncertainty Interval Range"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_line(color = "grey90"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+
+### 4i)
+
+The code chunk below vertically concatenates (binds) the `summary_post_df_all_from_vague` and `summary_post_df_all_empbayes` `tibble`s into a single `tibble` for you. This new `tibble`, `compare_post_summaries` includes a new column, `from_prior`, which denotes if the prior was the original uninformed prior or the Empirical Bayes informative prior.  
+```{r}
+
+summary_post_df_all_from_vague$from_prior <- "Uninformed Prior"
+summary_post_df_all_empbayes$from_prior <- "Empirical Bayes Prior"
+
+
+compare_post_summaries <- bind_rows(summary_post_df_all_from_vague, summary_post_df_all_empbayes)
+
+
+head(compare_post_summaries)
+
+```
+
+
+```{r, assemble_both_types_to_compare, eval=TRUE}
+compare_post_summaries <- summary_post_df_all_from_vague %>% 
+  mutate(from_prior = 'uninformed') %>% 
+  bind_rows(summary_post_df_all_empbayes %>% 
+              mutate(from_prior = 'Empirical Bayes'))
+
+compare_post_summaries %>% glimpse()
+```
+
+You will use this "composite" `tibble` to examine the sensitivity of the Posterior to the prior choice and sample size.  
+
+**Create a scatter plot for the Posterior middle 90% uncertainty interval range (difference between the 0.95 and 0.05 Quantiles) with respect to the `num_trials` using `ggplot2`. This plot will be similar to the one from 4h) except this time you must use the `compare_post_summaries` `tibble` instead of `summary_post_df_all_empbayes`. You must map the `color` aesthetic to the `from_prior` variable within the scatter plot. Include the `scale_x_log()` layer to transform the `x` aesthetic scale via the `log10()` function.**  
+
+#### SOLUTION
+
+Add as many code chunks as you feel are necessary.  
+
+```{r}
+compare_post_summaries %>% 
+                          ggplot( aes(x = num_trials, 
+                                        y = post_q95 - post_q05, 
+                                             color = from_prior)) +
+                          geom_point(alpha = 0.6) +
+                          scale_x_log10() +
+                         labs(
+                                title = "Sensitivity of Posterior to Prior                                                Choice and Sample Size",
+                                    x = "Number of Trials (Log Scale)",
+                                    y = "Posterior 90% Uncertainty Interval                                                             Range",
+                                   color = "Prior Type"
+                            ) +
+  theme_minimal()
+
+```
+
+
+### 4j)
+
+**Based on your visualizations in this exam, discuss how an informative prior influences the Posterior when the sample size is small compared with large sample sizes.**  
+
+#### SOLUTION
+
+What do you think?  
+
+  Informative priors, especially from the Empirical Bayes approach, play a crucial role in enhancing the reliability of statistical estimates, particularly when data is scarce. For small sample sizes, such priors significantly reduce uncertainty compared to vague priors. As the sample size increases, the data's influence becomes dominant, making the posterior mean closely align with the Maximum Likelihood Estimate (MLE). However, even in these situations, informative priors provide a nuanced understanding, making them invaluable in Bayesian analyses.
+
+## Problem 05
+
+Let's now use the posterior distribution to answer questions typically associated with this application. It is time to RECOMMEND movies! We will primarily focus on the DIFFERENCES between non-Bayesian recommendations with those provided from the informative Empirical Bayesian prior. This way you can gain practical experience with WHY the Bayesian approach is useful!  
+
+### 5a)
+
+**Display the BEST 10 movies according to the MLE for the POSITIVE review probability.**  
+
+**What are the trial sizes associated with the **BEST 10 movies**?**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+top_movies <- df_all %>%
+  mutate(MLE = num_events / num_trials) %>%
+  arrange(-MLE) %>%
+  slice_head(n = 10)
+
+
+top_movies %>% select(movie_id, MLE, num_trials)
+```
+
+
+
+### 5b)
+
+**Display the WORST 10 movies according to the MLE for the POSITIVE review probability.**  
+
+**What are the trial sizes associated with the WORST 10 movies?**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+bottom_movies <- df_all %>%
+  mutate(MLE = num_events / num_trials) %>%
+  arrange(MLE) %>%
+  slice_head(n = 10)
+
+
+bottom_movies %>% select(movie_id, MLE, num_trials)
+```
+
+
+### 5c)
+
+**Display the BEST 10 movies according to the posterior mean associated with the informative **Empirical Bayes prior**.**  
+
+**What are the trial sizes associated with the BEST 10 movies?**  
+
+#### SOLUTION
+
+Add your code chunks here. 
+
+```{r}
+top10_movies_R <- df_all %>%
+  mutate(
+    m = mean(num_trials),
+    p = sum(num_events) / sum(num_trials),
+    likability_bayesian = (num_events + m * p) / (num_trials + m)
+  ) %>%
+  arrange(desc(likability_bayesian)) %>%
+  select(movie_id, num_trials, likability_bayesian) %>%
+  slice_head(n = 10)
+
+top10_movies_R
+```
+
+
+
+### 5d)
+
+**Display the WORST 10 movies according to the posterior mean associated with the informative Empirical Bayes prior.**  
+
+**What are the trial sizes associated with the WORST 10 movies?**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+worst10_movies_R <- df_all %>%
+  mutate(
+    m = mean(num_trials),
+    p = sum(num_events) / sum(num_trials),
+    likability_bayesian = (num_events + m * p) / (num_trials + m)
+  ) %>%
+  arrange(likability_bayesian) %>%
+  select(movie_id, num_trials, likability_bayesian) %>%
+  slice_head(n = 10)
+
+worst10_movies_R
+```
+
+
+### 5e)
+
+**What are the primary differences between the BAYESIAN and NON-BAYESIAN recommendations?**  
+
+#### SOLUTION
+
+What do you think?  
+
+  Bayesian methods incorporate prior beliefs or knowledge about the data, while non-Bayesian methods only consider the observed data. Bayesian methods provide a full distribution of the parameter of interest, while non-Bayesian methods typically provide point estimates and confidence intervals. Bayesian methods are more robust to outliers or extreme values, and more interpretable in terms of real-world uncertainty. In the context of movie recommendations, Bayesian methods provide more reliable and balanced recommendations, especially for movies with fewer reviews.
+
+### 5f)
+
+Movies with many, many reviews (trials) mean the movies are well known. Let's now consider recommendations associated with movies with 15 reviews. Fewer reviews may represent fewer people have watched the movie. We therefore may want to RECOMMEND less widely known movies to our customers to **surprise** them.  
+
+**Filter the `summary_post_df_all_empbayes` object use the `filter()` function to keep all movies with 15 reviews. Assign the result to the `df_15` object. Use the `summary()` function to check the summary stats on `num_trials` to make sure you performed the operation correctly.**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+df_15 <- summary_post_df_all_empbayes %>% 
+                                         filter(num_trials == 15)
+
+summary(df_15$num_trials)
+
+```
+
+
+### 5g)
+
+Let's ask a probabilistic question to compare the movies with just 15 reviews! Specifically, you will examine the posterior probability that the movies with 15 reviews have POSITIVE review probabilities greater than 0.627.  
+
+**Calculate the posterior probability that each movie in `df_15` has a POSITIVE review probability greater than 0.53. Add a column to `df_15` named `prob_grt_62.7`. Assign the result to the `post_movie_eval` object.**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+post_movie_eval <- df_15 %>%
+  mutate(prob_grt_62.7 = 1 - pbeta(0.53, anew, bnew))
+
+
+head( post_movie_eval %>% select(movie_id,
+                                  num_events,
+                                   num_trials,
+                                  prob_grt_62.7))
+```
+
+
+
+```{r}
+m <- mean(df_15$num_trials)
+p <- sum(df_15$num_events) / sum(df_15$num_trials)
+threshold <- 0.627
+
+
+post_movie_eval <- df_15 %>%
+  mutate(
+    alpha = num_events + m * p,
+    beta = m * (1 - p) + num_trials - num_events,
+    prob_grt_62.7 = 1 - stats::pbeta(threshold, alpha, beta)
+  )
+
+post_movie_eval
+
+```
+
+### 5h)
+
+**Display the BEST 10 movies with 15 reviews based on the posterior probability that their POSITIVE review probability is greater than 0.627.**  
+
+#### SOLUTION
+
+Add your code chunks here.  
+
+```{r}
+best_10_movies_15_reviews <- post_movie_eval %>%
+  filter(prob_grt_62.7 > 0.627) %>%
+  arrange(desc(prob_grt_62.7)) %>%
+  top_n(10)
+
+best_10_movies_15_reviews %>% select(movie_id, post_avg, prob_grt_62.7)
+```
+
+```{r}
+df_15 <- df_all %>%
+  filter(num_trials == 15)
+
+
+df_15 <- df_15 %>%
+  mutate(
+    alpha = num_events + m * p,
+    beta = m * (1 - p) + num_trials - num_events,
+    prob_grt_62.7 = 1 - stats::pbeta(0.627, alpha, beta)
+  )
+
+
+top10_movies_prob_grt_627_R <- df_15 %>%
+  arrange(desc(prob_grt_62.7)) %>%
+  slice_head(n = 10)
+
+top10_movies_prob_grt_627_R %>% 
+                      select(movie_id, prob_grt_62.7)
+```
+
+
+### 5i)
+
+**Why do you think Problem 5g) was focused on calculating the probability that the POSITIVE review probability is greater than 0.627? What is the interpretation of such a question?**  
+
+*HINT*: Consider the interpretation of the completely pooled estimate.  
+
+#### SOLUTION
+
+What do you think?  
+The number 0.627 likely represents the average positive review rate for all movies combined. When we check if a movie's positive review probability exceeds 0.627, we're seeing if it performed better than this average. In essence, we're identifying movies that aren't just positively reviewed, but are standout hits compared to the general average.
+
