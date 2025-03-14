@@ -49,10 +49,10 @@ Let's consider you are working on this application because you were recently hir
 You will work with two datasets for this exam. Both are loaded for you in code chunk below. The first, `df_all`, is the larger of the two. The second, `df_focus`, is a subset of `df_all` so that we way can focus on 23 players to help with visualization and discussion in the exam.  
 
 ```{r, load_datasets, eval=TRUE}
-file_with_all <- "midterm_all_data.csv"
+file_with_all <- "midterm_all_data-1.csv"
 df_all <- readr::read_csv(file_with_all, col_names = TRUE)
 
-file_with_focus <- "midterm_focus_data.csv"
+file_with_focus <- "midterm_focus_data-1.csv"
 df_focus <- readr::read_csv(file_with_focus, col_names = TRUE)
 ```
 
@@ -74,7 +74,10 @@ Notice that in the above posterior formulation, each player has a potentially di
 
 #### SOLUTION
 
-What do you think?  
+Given that the hyperparameters are identical, this leads to a symmetric
+distribution. This symmetry implies an equal probability for occurrences
+and non-occurrences, classifying it as a "non-informative" process or a
+non-informative prior distribution.
 
 ### 1b)
 
@@ -84,7 +87,9 @@ You are using a conjugate prior to the Binomial likelihood, for each player.
 
 #### SOLUTION
 
-What do you think?  
+The Beta distribution serves as the conjugate prior for the binomial
+likelihood, leading to a Beta distribution for the posterior
+distribution.
 
 ### 1c)
 
@@ -94,7 +99,9 @@ You do not have to derive the formula for these updated parameters. You may simp
 
 #### SOLUTION
 
-Add your equation blocks here.  
+$a_{new, j} = a + m_j$
+
+$b_{new, j} = b + N_j - m_j$
 
 ### 1d)
 
@@ -102,7 +109,22 @@ Add your equation blocks here.
 
 #### SOLUTION
 
-Add your code chunks here.  
+$$
+Mean = \frac{a}{a+b}\\
+\frac{0.5}{0.5 + 0.5}\\
+= 0.5\\
+$$ 
+
+```{r, solution_1d, eval=TRUE}
+a <- 0.5
+b <- 0.5
+quantile_0.05 <- qbeta(0.05, shape1 = a, shape2 = b)
+quantile_0.95 <- qbeta(0.95, shape1 = a, shape2 = b)
+
+cat("0.05 quantile: ", quantile_0.05, "\n")
+cat("0.95 quantile: ", quantile_0.95, "\n")
+cat("90% uncertainty interval is between", quantile_0.05,"-",quantile_0.95, "\n")
+```
 
 ### 1e)
 
@@ -110,8 +132,10 @@ Add your code chunks here.
 
 #### SOLUTION
 
-```{r, solution_01e, eval=FALSE}
-post_df_focus_from_vague <- 
+```{r, solution_01e, eval=TRUE}
+a <- 0.5
+b <- 0.5
+post_df_focus_from_vague <- df_focus %>% mutate(anew = a + num_events, bnew = b + num_trials - num_events)
 ```
 
 
@@ -121,8 +145,11 @@ post_df_focus_from_vague <-
 
 #### SOLUTION
 
-```{r, solution_01f, eval=FALSE}
-summary_post_df_focus_from_vague <- 
+```{r, solution_01f, eval=TRUE}
+summary_post_df_focus_from_vague <- post_df_focus_from_vague %>% 
+        mutate(post_avg = anew/(anew+bnew), 
+               post_q05 = qbeta(0.05, anew, bnew), 
+               post_q95 =qbeta(0.95, anew, bnew)) 
 ```
 
 
@@ -139,10 +166,18 @@ You will now visualize the posterior summaries for the `r nrow(df_focus)` player
 #### SOLUTION
 
 ```{r, solution_01g}
-###
+summary_post_df_focus_from_vague %>% 
+        ggplot(aes(x=as.factor(player_id))) + 
+        geom_linerange(aes(ymin=post_q05, ymax=post_q95)) + 
+        geom_point(aes(y=post_avg)) + 
+        geom_point(aes(y=num_events/num_trials, color="red"))
 ```
 
 What do you think?  
+-   No, none of the players feature Maximum Likelihood Estimates (MLEs)
+    that fall outside the bounds of the posterior uncertainty interval.
+-   Yes, certain players exhibit posterior mean figures that closely
+    align with the Maximum Likelihood Estimates (MLEs).
 
 ### 1h)
 
@@ -155,10 +190,16 @@ To properly apply the dodging, set the `position` argument to be `position = pos
 #### SOLUTION
 
 ```{r, solution_01h}
-###
+summary_post_df_focus_from_vague %>% 
+        ggplot(aes(x=as.factor(num_trials))) + 
+        geom_linerange(aes(ymin=post_q05, ymax=post_q95, group=player_id), position = position_dodge(0.2)) + 
+        geom_point(aes(y=post_avg, group=player_id), position = position_dodge(0.2)) + geom_point(aes(y=num_events/num_trials, group=player_id, color="red"), position = position_dodge(0.2))
 ```
 
-What do you think?  
+What do you think? 
+
+Players with a smaller amount of trials exhibit greater uncertainty in
+the posterior estimation of the event probability.
 
 ### 1i)
 
@@ -168,7 +209,12 @@ You will now calculate the posteriors for **ALL** players based on the uninforme
 
 #### SOLUTION
 
-Add as many code chunks as you feel are necessary.  
+```{r, solution_1i, eval=TRUE}
+a <- 0.5
+b <- 0.5
+post_df_all_from_vague <- df_all %>% 
+        mutate(anew = a + num_events, bnew = b + num_trials - num_events)
+```  
 
 ### 1j)
 
@@ -176,7 +222,10 @@ Add as many code chunks as you feel are necessary.
 
 #### SOLUTION
 
-Add as many code chunks as you feel are necessary.  
+```{r, solution_1j, eval=TRUE}
+summary_post_df_all_from_vague <- post_df_all_from_vague %>% mutate(post_avg = anew/(anew+bnew), post_q05 = qbeta(0.05, anew, bnew), post_q95 =qbeta(0.95, anew, bnew)) 
+```
+
 
 ### 1k)
 
@@ -186,7 +235,22 @@ You will now visualize the Posterior Mean, based on the uniformative prior, rela
 
 #### SOLUTION
 
-Add as many code chunks as you feel are necessary.  
+```{r, solution_1k, eval=TRUE}
+summary_post_df_all_from_vague <- post_df_all_from_vague %>%
+  mutate(mle = num_events / num_trials,
+         post_avg = anew / (anew + bnew),
+         post_q05 = qbeta(0.05, anew, bnew),
+         post_q95 = qbeta(0.95, anew, bnew))
+
+ggplot(summary_post_df_all_from_vague, aes(x = mle, y = post_avg, color = num_trials)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  labs(title = "Posterior Mean vs Maximum Likelihood Estimate (MLE)",
+       x = "Maximum Likelihood Estimate (MLE)",
+       y = "Posterior Mean",
+       color = "Number of Trials") +
+  theme_minimal()
+``` 
 
 ### 1l)
 
@@ -194,7 +258,10 @@ Add as many code chunks as you feel are necessary.
 
 #### SOLUTION
 
-Add as many code chunks as you feel are necessary.  
+```{r, solution_1l, eval=TRUE}
+summary_post_df_all_from_vague %>% 
+        ggplot(aes(x=num_trials, y=post_q95-post_q05)) + geom_point()
+```  
 
 ## Problem 02
 
