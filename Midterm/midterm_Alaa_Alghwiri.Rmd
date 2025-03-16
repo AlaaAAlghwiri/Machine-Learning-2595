@@ -135,7 +135,8 @@ cat("90% uncertainty interval is between", quantile_0.05,"-",quantile_0.95, "\n"
 ```{r, solution_01e, eval=TRUE}
 a <- 0.5
 b <- 0.5
-post_df_focus_from_vague <- df_focus %>% mutate(anew = a + num_events, bnew = b + num_trials - num_events)
+post_df_focus_from_vague <- df_focus %>% 
+        mutate(anew = a + num_events, bnew = b + num_trials - num_events)
 ```
 
 
@@ -223,7 +224,8 @@ post_df_all_from_vague <- df_all %>%
 #### SOLUTION
 
 ```{r, solution_1j, eval=TRUE}
-summary_post_df_all_from_vague <- post_df_all_from_vague %>% mutate(post_avg = anew/(anew+bnew), post_q05 = qbeta(0.05, anew, bnew), post_q95 =qbeta(0.95, anew, bnew)) 
+summary_post_df_all_from_vague <- post_df_all_from_vague %>% 
+        mutate(post_avg = anew/(anew+bnew), post_q05 = qbeta(0.05, anew, bnew), post_q95 =qbeta(0.95, anew, bnew)) 
 ```
 
 
@@ -723,7 +725,11 @@ You will repeat the visualizations from Problem 1) to understand the effect of y
 #### SOLUTION
 
 ```{r, solution_04c, eval=TRUE}
-summary_post_df_focus_empbayes %>% ggplot(aes(x=as.factor(player_id))) + geom_linerange(aes(ymin=post_q05, ymax=post_q95)) + geom_point(aes(y=post_avg)) + geom_point(aes(y=num_events/num_trials), color="red")
+summary_post_df_focus_empbayes %>% 
+        ggplot(aes(x=as.factor(player_id))) + 
+        geom_linerange(aes(ymin=post_q05, ymax=post_q95)) + 
+        geom_point(aes(y=post_avg)) + 
+        geom_point(aes(y=num_events/num_trials), color="red")
 ```
 
 -   The posterior uncertainty interval resulting from the Empirical
