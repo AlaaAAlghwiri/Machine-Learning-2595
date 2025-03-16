@@ -1,0 +1,326 @@
+---
+title: "Basis Functions Recitation"
+author: "Patrick Skeba"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(caret)
+library(latex2exp)
+```
+
+## Generating 'synthetic' dataset
+
+Let's pull some data from the stock market, because the trend over time has a complex and unpredictable shape, and so should allow us to test different basis functions and see how complicated the relationships learned by a linear model can be. I will rename the columns in the database so it's clear we're not actually predicting financial trends - just pretend this is some process with a very complicated relationship between the input and output!
+
+```{r, load_stock, eval=FALSE}
+prices <- tq_get("AAPL",
+  get = "stock.prices",
+  from = "2010-01-01",
+  to = "2016-12-31"
+)
+```
+
+```{r, build_df}
+df <- prices |> select(y = adjusted) |>
+  mutate(y = y + rnorm(n = n(),sd=1.5),
+    x = seq(0,1,length.out=n()))
+
+df |> ggplot(aes(x=x,y=y)) + geom_point(color='red',alpha=0.3)
+```
+## Polynomial basis functions
+
+```{r}
+df |> ggplot(aes(x=x,y=y)) + 
+  geom_point(color='red',alpha=0.3) + 
+  geom_smooth(formula = y~x,
+              method='lm',
+              alpha=0.3,se=TRUE) + 
+  labs(title='Simple Linear Trend')
+
+df |> ggplot(aes(x=x,y=y)) + 
+  geom_point(color='red',alpha=0.3) + 
+  geom_smooth(formula = y ~ poly(x,10,raw = TRUE),
+              method='lm',
+              alpha=0.3,se=TRUE) + 
+  labs(title='10th-Order Polynomial Trend')
+```
+
+A polynomial basis function of degree $J$ applied to a single input $x_n$ will result in a new, transformed input with $J+1$ components (including the intercept):
+
+$$
+\boldsymbol{\phi}_{n}(x_n) = \begin{bmatrix}1 & x_{n} & x_{n}^2 & x_{n}^3 & \dots & x_n^J\end{bmatrix}\\
+\boldsymbol{\Phi}(\mathbf{x})^{(N\times J+1)} = \begin{bmatrix}\mathbf{1} & \mathbf{x} & \mathbf{x}^2 & \mathbf{x}^3 & \dots & \mathbf{x}^J\end{bmatrix}
+$$
+We can use the formula parameter of `model.matrix` to specify the basis function we wish to apply to the input. Note that `poly(x, 8, raw=TRUE)` is the shorter way to write `x + I(x^2) + I(x^3) + ...` You must include the `raw = TRUE` parameter, or else a different basis function from the polynomial will be applied. In this example, `poly_basis` is the transformed design matrix for a 8-degree polynomial basis function.
+
+```{r, poly_design}
+poly_basis <- model.matrix(y ~ poly(x,8,raw=TRUE), data = df) |> as_tibble()
+poly_basis # one column for every degree of the polynomial, plus the intercept
+```
+
+
+After applying the transformation, we must now learn $J+1$ parameters for each of the new basis features. We can express the value of $\mu_n$ in terms of the transformed inputs $\phi$, then back substitute $x$ to see the polynomial relationship between the input and response:
+
+$$
+\begin{align*}
+\mu_n = \boldsymbol{\phi}_n\boldsymbol{\beta} &= \sum_{j=0}^J\phi_{n,j}\beta_j\\
+&= \sum_{j=0}^J x_{n}^j\beta_j\\
+\boldsymbol{\mu} &= \boldsymbol{\Phi}\boldsymbol{\beta}
+\end{align*}
+$$
+
+You can learn a linear model with a non-linear trend by either creating the design matrix first with the appropriate formula, or specifying 
+```{r, train_poly}
+poly_basis <- model.matrix(y ~ poly(x,10,raw=TRUE),data=df) |> as_tibble()
+
+new_colnames <- names(poly_basis)
+for (j in 2:(ncol(poly_basis))) {
+  new_colnames[j] <- paste0('degree',j-1)
+}
+
+names(poly_basis) <- new_colnames
+# poly_basis <- poly_basis |> `colnames<-`(new_colnames)
+
+
+# y ~ . means y is a function of every variable in poly_basis. -1 tells lm not to include the intercept since poly_basis already has one
+poly_lm = lm(y ~ . - 1, data = poly_basis |> mutate(y = df$y))
+
+# Alternatively, specify the formula in lm without creating the basis design matrix first
+# poly_lm = lm(y ~ poly(x,20,raw=TRUE), data = poly_basis |> mutate(y = df$y))
+```
+
+Let us plot the basis features both before, and after training. Recall that a basis function transforms the input $x$ into a new input $\boldsymbol{\phi}^{(J)}$, therefore we can plot each of the original inputs (horizontal axis) vs their transformation by each of the basis components. The resulting figure shows each degree of freedom of the model (minus the intercept) - each curve will be multiplied by it's respective $\beta$ parameter, then they will all be summed together to produce the mean trend $\mu$, or predicted response for a given input and set of parameters. The second figure shows those original component curves, multiplied by the maximum likelihood estimate of their respective $\beta_{\tt MLE}$ parameter. It is these curves that will be summed together to arrive at the complete mean trend
+
+```{r, poly_prepost_comps}
+
+# Plot each of the J transformed input features.
+poly_basis |> mutate(x=df$x) |>  pivot_longer(cols = 2:ncol(poly_basis)) |>
+  mutate(name = factor(name,levels=new_colnames)) |>
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  labs(title='10 Polynomial Components before Training',
+       y = TeX("$\\phi(x)"))
+
+# Calculate prediction (mean trend) for each transformed sample in the training set
+pred_y = as.matrix(poly_basis) %*% as.vector(poly_lm$coefficients)
+
+# Multiply each column (transformed variable) by the fitted coefficients from the linear model
+a <- poly_basis
+for (b in seq(1,ncol(a))) {
+  a[b] = a[b]*poly_lm$coefficients[b]
+}
+
+# Plot all J+1 transformed components against the original feature value x
+a |> mutate(x=df$x) |>  pivot_longer(cols = 1:ncol(poly_basis)) |> 
+  mutate(name = factor(name,levels=new_colnames)) |>
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  # ylim(-10000,10000) +
+  labs(title='10 Polynomial Components after Training',
+       y = TeX("$\\phi(x)$\\times$\\beta"))
+  
+```
+
+
+
+
+
+```{r}
+df |> bind_cols(predict(poly_lm, interval = "confidence")) |> 
+  rename(pred_y = fit) |> 
+  ggplot(aes(x = x)) +
+  geom_point(aes(y = y),alpha=.2) +
+  geom_line(aes(y = pred_y),size=0.8) +
+  geom_ribbon(aes(y=pred_y,ymin=lwr,ymax=upr),fill='orange',alpha=0.5) +
+  xlim(.5,.55) + ylim(10,20)
+  
+  
+```
+
+
+## Natural Cubic Spline Basis Function
+
+Spline basis functions divide an input into multiple different regions, and within each region they fit a separate polynomial function. Can model complex relationships 
+```{r, geom_smooth_spline}
+df |> ggplot(aes(x=x,y=y)) + 
+  geom_point(color='red',alpha=0.1) + 
+  geom_smooth(formula = y ~ splines::ns(x,df=10),
+              method='lm',
+              alpha=0.3,se=TRUE) + 
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10-degree Natural Spline')
+```
+
+
+```{r, spline_basis_design}
+spline_basis <- model.matrix(y ~ splines::ns(x,df=15),data=df) |> as_tibble()
+
+spline_basis |> mutate(x=df$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components before Training')
+
+spline_lm = lm(y ~ . - 1, data = spline_basis |> mutate(y = df$y))
+
+pred_y = as.matrix(spline_basis) %*% as.vector(spline_lm$coefficients)
+
+a <- spline_basis
+
+for (b in seq(1,ncol(a))) {
+  a[b] = a[b]*spline_lm$coefficients[b]
+}
+
+a |> mutate(x=df$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components after Training')
+
+df |> mutate(pred_y = pred_y) |> pivot_longer(c('y','pred_y')) |> ggplot(aes(x = x,y = value, color = name)) +
+  geom_point(alpha=.5)
+
+df |> mutate(pred_y = rowSums(a)) |> bind_cols(a) |> select(!y) |> 
+  pivot_longer(!x) |>  
+  ggplot(aes(x = x)) +
+  geom_point(data=df,aes(y=y),color='white',alpha=.9) +
+  geom_line(aes(y = value, color = name),size=1.2) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='Fitted trend and individual weighted spline components')
+```
+## Use 5-fold cross validation to compare spline and polynomial models of various degrees
+```{r, cv_spline_vs_poly}
+
+spline_cv3 <- train(y ~ splines::ns(x,df = 3), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+poly_cv3 <- train(y ~ poly(x,3,raw=TRUE), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+spline_cv5 <- train(y ~ splines::ns(x,df = 5), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+poly_cv5 <- train(y ~ poly(x,5,raw=TRUE), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+spline_cv7 <- train(y ~ splines::ns(x,df = 7), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+poly_cv7 <- train(y ~ poly(x,7,raw=TRUE), 
+                        data = df,
+                        method = "lm",
+                        metric = "RMSE",
+                        trControl = trainControl(method = 'cv', number = 5))
+
+model_results = resamples(list(Spline3 = spline_cv3,Poly3 = poly_cv3,
+                               Spline5 = spline_cv5,Poly5 = poly_cv5,
+                               Spline7 = spline_cv7,Poly7 = poly_cv7))
+
+model_results |> summary(metric='RMSE')
+model_results |> dotplot(metric='RMSE')
+```
+
+```{r, spline_basis_design_uneven}
+df2 <- df |> mutate(x = ifelse(x > 0.4 & x < 0.5, x, x + rnorm(1,0.1,0.03)))
+df2 <- df |> mutate(x = x * rnorm(n(),3,4))
+
+df2 |> ggplot(aes(x=x,y=y)) + geom_point()
+
+spline_basis <- model.matrix(y ~ poly(x,5,raw=TRUE),data= df2) |> as_tibble()
+
+spline_basis |> mutate(x=df2$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components before Training')
+
+spline_lm = lm(y ~ . - 1, data = spline_basis |> mutate(y = df2$y))
+
+pred_y = as.matrix(spline_basis) %*% as.vector(spline_lm$coefficients)
+
+a <- spline_basis
+
+for (b in seq(1,ncol(a))) {
+  a[b] = a[b]*spline_lm$coefficients[b]
+}
+
+a |> mutate(x=df2$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components after Training')
+
+df2 |> mutate(pred_y = pred_y) |> pivot_longer(c('y','pred_y')) |> ggplot(aes(x = x,y = value, color = name)) +
+  geom_point(alpha=.5)
+
+df2 |> mutate(pred_y = rowSums(a)) |> bind_cols(a) |> select(!y) |> 
+  pivot_longer(!x) |>  
+  ggplot(aes(x = x)) +
+  geom_line(data=df2,aes(y=y),color='white',alpha=.9) +
+  geom_line(aes(y = value, color = name),size=1.2) +
+  ylim(min=0,max=100) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='Fitted trend and individual weighted spline components')
+```
+
+
+
+
+
+```{r}
+df2 <- df |> mutate(x = ifelse(x > 0.4 & x < 0.5, x, x + rnorm(1,0.1,0.03)))
+df2 <- df |> mutate(x = x * rnorm(n(),3,4))
+
+df2 |> ggplot(aes(x=x,y=y)) + geom_point()
+
+spline_basis <- model.matrix(y ~ splines::ns(x,df=10),data= df2) |> as_tibble()
+
+spline_basis |> mutate(x=df2$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components before Training')
+
+spline_lm = lm(y ~ . - 1, data = spline_basis |> mutate(y = df2$y))
+
+pred_y = as.matrix(spline_basis) %*% as.vector(spline_lm$coefficients)
+
+a <- spline_basis
+
+for (b in seq(1,ncol(a))) {
+  a[b] = a[b]*spline_lm$coefficients[b]
+}
+
+a |> mutate(x=df2$x) |>  pivot_longer(cols = 2:ncol(spline_basis)) |> 
+  ggplot(aes(x=x,y=value,color=name)) + geom_line(alpha=.8) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='10 Spline Components after Training')
+
+df2 |> mutate(pred_y = pred_y) |> pivot_longer(c('y','pred_y')) |> ggplot(aes(x = x,y = value, color = name)) +
+  geom_point(alpha=.5)
+
+df2 |> mutate(pred_y = rowSums(a)) |> bind_cols(a) |> select(!y) |> 
+  pivot_longer(!x) |>  
+  ggplot(aes(x = x)) +
+  geom_line(data=df2,aes(y=y),color='white',alpha=.9) +
+  geom_line(aes(y = value, color = name),size=1.2) +
+  scale_x_continuous(minor_breaks = seq(0, 1, length.out=10), breaks = NULL) +
+  labs(title='Fitted trend and individual weighted spline components')
+```
+

@@ -1,0 +1,312 @@
+---
+title: "Week 9 - LM Sample Code"
+author: "Patrick Skeba"
+date: "2024-07-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(broom)
+library(ISLR2)
+```
+
+```{r}
+data("Hitters")
+Hitters <- Hitters |> select_if(is.numeric) |> drop_na()
+lin_mod <- lm(Salary ~ ., data = Hitters)
+
+broom::tidy(lin_mod) |> filter(p.value < 0.05) |> 
+  ggplot(aes(x=estimate,y=term)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=estimate-2*std.error,xmax=estimate+2*std.error),width=0.3) +
+  geom_vline(xintercept=0,color='red',linetype=2) +
+  geom_text(aes(label=round(estimate,2)),vjust=2,color='blue') +
+  labs(title="Posterior parameter estimates (diffuse prior)",
+       subtitle = "Response: Annual Salary. Only significant coefs shown")
+```
+
+```{r}
+Hitters |> pivot_longer(cols = c("Walks","PutOuts","Hits","CWalks",
+                                 "CRuns","AtBat")) |> 
+  ggplot(aes(x=value,y=Salary,color=name)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~name,scales='free')
+```
+
+```{r}
+# Plot posterior distributions
+coef_summary <- broom::tidy(lin_mod) |> filter(p.value < 0.05)
+
+MASS::mvrnorm(n = 20000, mu = coef_summary$estimate, 
+              Sigma = diag(coef_summary$std.error^2)) |> 
+  as_tibble() |> set_names(coef_summary$term) |> 
+  pivot_longer(cols = everything()) |> 
+  ggplot(aes(x=value,fill=name,group=name)) +
+  geom_histogram(aes(y = after_stat(density)),bins=30,show.legend = FALSE) +
+  facet_wrap(~name,scales='free')
+```
+
+Plot the predictive trend, with 2 dimensions
+
+```{r,eval=FALSE}
+viz_grid <- Hitters |> select(-c(Walks,Hits,Salary)) |> 
+  summarize_all(mean) |> slice(rep(1:n(), each=100*100)) |> 
+  bind_cols(expand.grid(Walks = seq(min(Hitters$Walks),max(Hitters$Walks),length.out = 100),
+                        Hits = seq(min(Hitters$Hits),max(Hitters$Hits),length.out = 100)))
+  
+  
+viz_grid |> mutate(pred_y = lin_mod |> predict(viz_grid)) |> 
+  ggplot(aes(x=Walks,y=Hits,z=pred_y)) + geom_contour_filled()
+```
+
+### Define log-posterior and laplace approximation functions
+
+```{r}
+my_logpost <- function(betas,Hitters,lik_sigma) {
+  y <- Hitters$Salary
+  X <- model.matrix(Salary ~ . , data = Hitters) |> as.matrix()
+  
+  mu <- X %*% betas
+  
+  log_lik <- sum(dnorm(x = y,
+                       mean = mu,
+                       sd = lik_sigma,
+                       log = TRUE))
+  
+  return(log_lik)
+}
+
+my_logpost_prior <- function(betas,Hitters,lik_sigma) {
+  b0 <- 0
+  tau0 <- 0.5
+  
+  
+  y <- Hitters$Salary
+  X <- model.matrix(Salary ~ . , data = Hitters) |> as.matrix()
+  
+  mu <- X %*% betas
+  
+  log_lik <- sum(dnorm(x = y,
+                       mean = mu,
+                       sd = lik_sigma,
+                       log = TRUE))
+  
+  log_prior <- sum(dnorm(x = betas,
+                         mean = b0,
+                         sd = tau0,
+                         log = TRUE))
+  
+  return(log_lik + log_prior)
+}
+
+my_laplace <- function(start_guess, logpost_func, ...)
+{
+  # code adapted from the `LearnBayes`` function `laplace()`
+  fit <- optim(start_guess,
+               logpost_func,
+               gr = NULL,
+               ...,
+               method = "BFGS",
+               hessian = TRUE,
+               control = list(fnscale = -1, maxit = 1001))
+  
+  mode <- fit$par
+  post_var_matrix <- -solve(fit$hessian)
+  p <- length(mode)
+  int <- p/2 * log(2 * pi) + 0.5 * log(det(post_var_matrix)) + logpost_func(mode, ...)
+  # package all of the results into a list
+  list(mode = mode,
+       var_matrix = post_var_matrix,
+       log_evidence = int,
+       converge = ifelse(fit$convergence == 0,
+                         "YES", 
+                         "NO"),
+       iter_counts = as.numeric(fit$counts[1]))
+}
+```
+
+```{r}
+lik_sigma <- 1
+bayes_mod <- my_laplace(rep(1,ncol(Hitters)),my_logpost,Hitters,lik_sigma)
+
+# Draw from posterior distribution
+# post_samples <- MASS::mvrnorm(n = 100, mu = bayes_mod$mode, Sigma = bayes_mod$var_matrix)
+```
+
+
+```{r}
+# A tremendous amount of work went into this silly code to generate a 2D posterior distribution
+num_samples <- 100
+
+# Initially, set all posterior samples equal to their mode
+post_viz <- bayes_mod$mode |> as_tibble_row(.name_repair = 'minimal') |> 
+  set_names(append("(Intercept)",colnames(Hitters))[1:17]) |> 
+  slice(rep(1:n(), each = num_samples^2))
+  
+# Then, for two variables I want to plot, create an expanded grid of points covering the range of the input
+expanded_vars <- expand.grid(Walks = seq(-15,15,length.out = num_samples),
+                        Hits = seq(-15,15,length.out = num_samples))
+
+# In the vizualization grid, overwrite the selected variables with the expanded grid
+# the purpose of this is to keep the order of columns the same
+post_viz <- post_viz |> mutate(Walks = expanded_vars$Walks,
+                   Hits = expanded_vars$Hits)
+
+post_probs <- by(post_viz,seq_len(nrow(post_viz)),\(row) my_logpost(row |> as.matrix() |> t(),Hitters,lik_sigma))
+
+post_viz |> mutate(post_probs = post_probs) |> 
+  ggplot(aes(x=Walks,y=Hits,z=post_probs |> as.numeric())) +
+  geom_contour_filled(breaks=quantile(post_probs,c(1,0.99,0.9,0.5,0.2,0.01)))
+
+```
+
+The posterior reveals some correlation between the coefficients for walks and hits
+
+```{r}
+Hitters |> ggplot(aes(x=Walks,y=Hits,color=Salary)) +
+  geom_point() + 
+  scale_color_binned(breaks = Hitters$Salary |> quantile(c(0.01,0.1,0.5,0.90,0.95)),type='viridis')
+```
+
+```{r}
+Hitters$Salary |> quantile(c(0.01,0.1,0.5,0.90,0.95,0.99))
+```
+
+```{r}
+tibble(beta = rnorm(10000,0,1)) |> 
+  ggplot(aes(x=beta)) +
+  geom_density(adjust=2) +
+  labs(title = "Prior distribution with mean 0 and std 1")
+```
+
+```{r}
+bayes_mod_prior <- my_laplace(rep(1,ncol(Hitters)),my_logpost_prior,Hitters[1:30,],lik_sigma)
+bayes_mod_prior 
+```
+
+```{r}
+# MASS::mvrnorm(n = 20000, mu = bayes_mod_prior$mode, 
+#               Sigma = bayes_mod_prior$var_matrix) |> 
+#   as_tibble() |> #set_names(coef_summary$term) |> 
+#   pivot_longer(cols = everything()) |> 
+#   ggplot(aes(x=value,fill=name,group=name)) +
+#   geom_histogram(aes(y = after_stat(density)),bins=30,show.legend = FALSE) +
+#   facet_wrap(~name,scales='free')
+
+# A tremendous amount of work went into this silly code to generate a 2D posterior distribution
+num_samples <- 100
+
+# Initially, set all posterior samples equal to their mode
+post_viz <- bayes_mod_prior$mode |> as_tibble_row(.name_repair = 'minimal') |> 
+  set_names(append("(Intercept)",colnames(Hitters))[1:17]) |> 
+  slice(rep(1:n(), each = num_samples^2))
+  
+# Then, for two variables I want to plot, create an expanded grid of points covering the range of the input
+expanded_vars <- expand.grid(Walks = seq(-15,15,length.out = num_samples),
+                        Hits = seq(-15,15,length.out = num_samples))
+
+# In the vizualization grid, overwrite the selected variables with the expanded grid
+# the purpose of this is to keep the order of columns the same
+post_viz <- post_viz |> mutate(Walks = expanded_vars$Walks,
+                   Hits = expanded_vars$Hits)
+
+post_probs <- by(post_viz,seq_len(nrow(post_viz)),\(row) my_logpost_prior(row |> as.matrix() |> t(),Hitters,lik_sigma))
+
+post_viz |> mutate(post_probs = post_probs) |> 
+  ggplot(aes(x=Walks,y=Hits,z=post_probs |> as.numeric())) +
+  geom_contour_filled(breaks=quantile(post_probs,c(1,0.99,0.9,0.5,0.2,0.01)))
+```
+
+Try some different basis functions
+```{r}
+quad_formula <- reformulate(paste0('poly(',colnames(Hitters |> select(-Salary)),',degree=2,raw=TRUE)'),response="Salary")
+quad_formula
+
+quad_mod <- lm(formula = quad_formula, data = Hitters)
+quad_mod |> broom::tidy() |> filter(p.value < 0.05)
+```
+
+```{r}
+quad_mod |> broom::tidy() 
+
+viz_grid <- Hitters |> select(-Salary)
+viz_grid
+
+num_samples <- 100
+quad_viz <- Hitters |> select(-Salary) |> summarize(across(everything(),mean)) |> 
+  slice(rep(1:n(), each = num_samples)) |> 
+  mutate(Walks = seq(min(Hitters$Walks),max(Hitters$Walks),length.out=n()))
+
+quad_viz |> mutate(quad_model = predict(quad_mod,newdata=quad_viz),
+                   lin_model = predict(lin_mod, newdata=quad_viz)) |> 
+  pivot_longer(cols = c("quad_model","lin_model")) |> 
+  ggplot() +
+  geom_line(aes(x=Walks,y=value,color=name),size=1.4) +
+  geom_point(mapping = aes(x=Walks, y=Salary), data = Hitters, alpha = 0.6, color = "gray") +
+  labs(y = "Salary",
+       title = "Quadratic vs Linear mean trend on Walks input variable")
+  
+```
+
+```{r}
+quad_viz |> bind_cols(predict(quad_mod,newdata=quad_viz,interval="prediction")) |> 
+  bind_cols(predict(quad_mod,newdata=quad_viz,interval="confidence")) |> 
+  ggplot(aes(x=Walks)) +
+  geom_ribbon(aes(ymin=lwr...18,ymax=upr...19),alpha=0.3,fill="orange") +
+  geom_ribbon(aes(ymin=lwr...21,ymax=upr...22),alpha=0.8,fill="gray") +
+  geom_point(aes(y=Salary),data=Hitters,alpha=0.3,color="plum4") +
+  geom_line(aes(y=fit...17),size=1.3,color="steelblue") +
+  labs(title = "Confidence and Prediction Intervals on Quad Model Preds")
+
+quad_viz |> bind_cols(predict(lin_mod,newdata=quad_viz,interval="prediction")) |> 
+  bind_cols(predict(lin_mod,newdata=quad_viz,interval="confidence")) |> 
+  ggplot(aes(x=Walks)) +
+  geom_ribbon(aes(ymin=lwr...18,ymax=upr...19),alpha=0.3,fill="orange") +
+  geom_ribbon(aes(ymin=lwr...21,ymax=upr...22),alpha=0.8,fill="gray") +
+  geom_point(aes(y=Salary),data=Hitters,alpha=0.5,color="plum4") +
+  geom_line(aes(y=fit...17),size=1.3,color="steelblue") +
+  labs(title = "Confidence and Prediction Intervals on Linear Model Preds")
+  
+```
+
+```{r}
+poly_order = 13
+poly_formula <- reformulate(paste0('poly(',
+                                   colnames(Hitters |> select(-Salary)),
+                                   ',degree=', poly_order,
+                                   ',raw=TRUE)'),response="Salary")
+
+poly_mod <- lm(formula = poly_formula, data = Hitters)
+
+quad_viz |> bind_cols(predict(poly_mod,newdata=quad_viz,interval="prediction")) |> 
+  bind_cols(predict(poly_mod,newdata=quad_viz,interval="confidence")) |> 
+  ggplot(aes(x=Walks)) +
+  geom_ribbon(aes(ymin=lwr...18,ymax=upr...19),alpha=0.3,fill="orange") +
+  geom_ribbon(aes(ymin=lwr...21,ymax=upr...22),alpha=0.8,fill="gray") +
+  geom_point(aes(y=Salary),data=Hitters,alpha=0.3,color="plum4") +
+  geom_line(aes(y=fit...17),size=1.3,color="steelblue") +
+  labs(title = paste0('Confidence and Prediction Intervals on ',
+                      poly_order,'th-order Polynomial'))
+```
+
+```{r}
+lin_mod |> summary()
+```
+
+```{r}
+Xmat <- model.matrix(Salary ~ Walks + Hits + AtBat,data=Hitters)
+Xmat
+
+Phimat <- model.matrix(Salary ~ poly(Walks,4,raw=TRUE) + poly(Hits,4,raw=TRUE) + poly(AtBat,4,raw=TRUE),data=Hitters)
+
+Xmat |> dim()
+Phimat |> dim()
+
+
+```
+
