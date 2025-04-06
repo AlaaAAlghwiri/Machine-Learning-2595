@@ -1,7 +1,7 @@
 ---
 title: "INFSCI 2595 Spring 2025 Homework: 6"
 subtitle: "Assigned April 3, 2024; Due: April 14, 2024"
-author: "YOUR NAME HERE"
+author: "Alaa Alghwiri"
 date: "Submission time: "
 output: html_document
 ---
@@ -12,7 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #### Collaborators
 
-Include the names of your collaborators here.  
+Include the names of your collaborators here. 
+No collaborators.
 
 ## Overview
 
@@ -82,6 +83,13 @@ It is up to you as to whether you use the wide format or long-format data. If yo
 #### SOLUTION
 
 Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 17) +
+  facet_wrap(~name) +
+  theme_bw()
+```
 
 ### 1b)
 
@@ -89,7 +97,13 @@ Add your code chunks here.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+df1 %>% 
+  ggplot(mapping = aes(x = x1)) +
+  geom_bar() +
+  theme_bw()
+```
+
 
 ### 1c)
 
@@ -99,7 +113,14 @@ Let's examine if there are differences in the continuous input distributions bas
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = x1, y = value)) +
+  geom_boxplot(fill = 'grey') +
+  facet_wrap(~name) +
+  theme_bw()
+```
+ 
 
 ### 1d)
 
@@ -109,11 +130,17 @@ Let's now focus on the binary outcome.
 
 **Is the binary outcome balanced?**  
 
-#### SOLUTION
+```{r}
+df1 %>% 
+  ggplot(mapping = aes(x = as.factor(y))) +
+  geom_bar() +
+  theme_bw()
+```
 
-Add your code chunks here.  
+
 
 What do you think?  
+The binary outcome is not balanced. The event class is somehow the minority class.
 
 ### 1e)
 
@@ -125,7 +152,13 @@ The data type conversion function `as.factor()` can be applied in-line. This wil
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+df1 %>% 
+  ggplot(mapping = aes(x = x1)) +
+  geom_bar(mapping = aes(fill = as.factor(y))) +
+  theme_bw()
+```
+
 
 ### 1f)
 
@@ -135,7 +168,14 @@ Let's now visualize the binary outcome with respect to the continuous inputs. Yo
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = value, y = y)) +
+  geom_jitter(height = 0.02, width = 0) +
+  facet_wrap(~name) +
+  theme_bw()
+```
+
 
 ### 1g)
 
@@ -147,7 +187,17 @@ The `formula` argument are "local" variables associated with the aesthetics. Thu
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = value, y = y)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x,
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap(~name) +
+  theme_bw()
+```
+
 
 ### 1h)
 
@@ -159,9 +209,23 @@ Let's check if the categorical input influences the event probability trends wit
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = value, y = y)) +
+  geom_jitter(height = 0.05,
+              mapping = aes(color = x1)) +
+  geom_smooth(formula = y ~ x,
+              method = glm,
+              mapping = aes(color = x1,
+                            fill = x1),
+              method.args = list(family = 'binomial')) +
+  facet_wrap(~name) +
+  theme_bw()
+```
+
 
 What do you think?  
+Obviously, none of those fits seem to work well for the data. 
 
 ### 1i)
 
@@ -173,9 +237,23 @@ The previous figures used the "basic" formula of `y ~ x` within `geom_smooth()`.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+lf1 %>% 
+  ggplot(mapping = aes(x = value, y = y)) +
+  geom_jitter(height = 0.05,
+              mapping = aes(color = x1)) +
+  geom_smooth(formula = y ~ x + I(x^2),
+              method = glm,
+              mapping = aes(color = x1,
+                            fill = x1),
+              method.args = list(family = 'binomial')) +
+  facet_wrap(~name) +
+  theme_bw()
+```
+ 
 
 What do you think?  
+The smooth function tries to fit a quadratic function to the data, but it does not seem to work well. The data is not quadratic in nature and just the z representation can fit such a kind of outcomes.
 
 ## Problem 02
 
@@ -199,7 +277,19 @@ You do not need to fit all models in a single code chunk.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+modA <- glm( y ~ x1, data = df1)
+
+modB <- glm( y ~ x2 + x3, data = df1)
+
+modC <- glm( y ~ x1 + x2 + x3, data = df1 )
+
+modD <- glm( y ~ x1 * (x2 + x3), data = df1 )
+
+modE <- glm( y ~ x1 + x2 * x3, data = df1 )
+
+```
+
 
 ### 2b)
 
@@ -211,7 +301,32 @@ Add your code chunks here.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+extract_metrics <- function(mod_object, mod_name)
+{
+  broom::glance(mod_object) %>% 
+    mutate(model_name = mod_name)
+}
+```
+
+```{r}
+glm_mle_results <- purrr::map2_dfr(list(modA, modB, modC, modD,
+                                        modE),
+                                   LETTERS[1:5],
+                                   extract_metrics)
+```
+
+ 
+```{r}
+glm_mle_results %>% 
+  select(model_name, AIC, BIC) %>% 
+  pivot_longer(c(AIC, BIC)) %>% 
+  ggplot(mapping = aes(x = model_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = 'free_y') +
+  theme_bw()
+```
+Based on the AIC and BIC values, the best model is model C and the second best is model E. The AIC and BIC values are used to select the best model. The lower the AIC and BIC values, the better the model.
 
 ### 2c)
 
@@ -221,7 +336,19 @@ You should use the `coefplot::coefplot()` function to create the plots.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+modC %>% 
+  coefplot::coefplot(intercept = FALSE) +
+  theme_bw()
+```
+x2 and x1b are significant in the model C. 
+
+```{r}
+modE %>% 
+  coefplot::coefplot(intercept = FALSE) +
+  theme_bw()
+```
+x2 and x1b are significant in the model E.
 
 ## Problem 03
 
