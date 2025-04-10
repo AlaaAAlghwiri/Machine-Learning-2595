@@ -86,7 +86,7 @@ Add your code chunks here.
 ```{r}
 lf1 %>% 
   ggplot(mapping = aes(x = value)) +
-  geom_histogram(bins = 17) +
+  geom_histogram() +
   facet_wrap(~name) +
   theme_bw()
 ```
@@ -116,7 +116,7 @@ Let's examine if there are differences in the continuous input distributions bas
 ```{r}
 lf1 %>% 
   ggplot(mapping = aes(x = x1, y = value)) +
-  geom_boxplot(fill = 'grey') +
+  geom_boxplot() +
   facet_wrap(~name) +
   theme_bw()
 ```
@@ -171,7 +171,7 @@ Let's now visualize the binary outcome with respect to the continuous inputs. Yo
 ```{r}
 lf1 %>% 
   ggplot(mapping = aes(x = value, y = y)) +
-  geom_jitter(height = 0.02, width = 0) +
+  geom_jitter(height = 0.02) +
   facet_wrap(~name) +
   theme_bw()
 ```
@@ -384,7 +384,15 @@ E: Add the categorical input to linear main effects and interaction between the 
 
 #### SOLUTION
 
-Create the design matrices for the 8 models. Add your code chunks below.  
+```{r}
+Xmat_A <- model.matrix(modA$formula, data = df1)
+Xmat_B <- model.matrix(modB$formula, data = df1)
+Xmat_C <- model.matrix(modC$formula, data = df1)
+Xmat_D <- model.matrix(modD$formula, data = df1)
+Xmat_E <- model.matrix(modE$formula, data = df1)
+
+```
+ 
 
 ### 3c)
 
@@ -395,40 +403,40 @@ The log-posterior function you will program requires the design matrix, the obse
 
 #### SOLUTION
 
-```{r, solution_03c, eval=FALSE}
+```{r, solution_03c, eval=TRUE}
 info_A <- list(
-  yobs = ,
-  design_matrix = ,
-  mu_beta = ,
-  tau_beta = 
+  yobs = df1$y,
+  design_matrix = Xmat_A,
+  mu_beta = 0,
+  tau_beta = 4.5
 )
 
 info_B <- list(
-  yobs = ,
-  design_matrix = ,
-  mu_beta = ,
-  tau_beta = 
+  yobs = df1$y,
+  design_matrix = Xmat_B,
+  mu_beta = 0,
+  tau_beta = 4.5
 )
 
 info_C <- list(
-  yobs = ,
-  design_matrix = ,
-  mu_beta = ,
-  tau_beta = 
+  yobs = df1$y,
+  design_matrix = Xmat_C,
+  mu_beta = 0,
+  tau_beta = 4.5
 )
 
 info_D <- list(
-  yobs = ,
-  design_matrix = ,
-  mu_beta = ,
-  tau_beta = 
+  yobs = df1$y,
+  design_matrix = Xmat_D,
+  mu_beta = 0,
+  tau_beta = 4.5
 )
 
 info_E <- list(
-  yobs = ,
-  design_matrix = ,
-  mu_beta = ,
-  tau_beta = 
+  yobs = df1$y,
+  design_matrix = Xmat_E,
+  mu_beta = 0,
+  tau_beta = 4.5
 )
 ```
 
@@ -444,39 +452,45 @@ You will now define the log-posterior function for logistic regression, `logisti
 
 Do you need to separate the $\boldsymbol{\beta}$-parameters from the `unknowns` vector?  
 
-```{r, solution_01d, eval=FALSE}
+```{r, solution_01d, eval=TRUE}
 logistic_logpost <- function(unknowns, my_info)
 {
   # extract the design matrix and assign to X
-  X <- 
+  X <- my_info$design_matrix
   
   # calculate the linear predictor
-  eta <- 
+  eta <- as.vector( X %*% as.matrix(unknowns))
   
   # calculate the event probability
-  mu <- 
+  mu <- boot::inv.logit(eta)
   
   # evaluate the log-likelihood
-  log_lik <- 
+  log_lik <- sum(dbinom(x = my_info$yobs,
+                        size = 1, 
+                        prob = mu,
+                        log = TRUE))
   
   # evaluate the log-prior
-  log_prior <- 
+  log_prior <- sum(dnorm(x = unknowns,
+                         mean = my_info$mu_beta,
+                         sd = my_info$tau_beta,
+                         log = TRUE))
   
   # sum together
-  
+  log_lik + log_prior
 }
 ```
 
 Test out your function using the `info_A` information and setting the unknowns to a vector of -1's.  
 
 ```{r, solution_01d_b}
-###
+logistic_logpost(rep(-1, ncol(Xmat_A)), info_A)
 ```
 
 Test out your function using the `info_A` information and setting the unknowns to a vector of 2's.  
 
 ```{r, solution_01d_c}
-###
+logistic_logpost(rep(2, ncol(Xmat_A)), info_A)
 ```
 
 
@@ -523,6 +537,17 @@ You will use `my_laplace()` to execute the Laplace Approximation for all 5 model
 Does the initial guess matter?  
 
 Add the code chunks here.  
+```{r}
+laplace_A <- my_laplace(rep(0, ncol(Xmat_A)), logistic_logpost, info_A)
+
+laplace_B <- my_laplace(rep(0, ncol(Xmat_B)), logistic_logpost, info_B)
+
+laplace_C <- my_laplace(rep(0, ncol(Xmat_C)), logistic_logpost, info_C)
+
+laplace_D <- my_laplace(rep(0, ncol(Xmat_D)), logistic_logpost, info_D)
+
+laplace_E <- my_laplace(rep(0, ncol(Xmat_E)), logistic_logpost, info_E)
+```
 
 ### 3f)
 
@@ -532,7 +557,20 @@ The `laplace_A` object is the Bayesian version of `modA` that you fit previously
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+tibble::tibble(
+  term = colnames(Xmat_A),
+  post_mean = laplace_A$mode,
+  post_sd = sqrt( diag( laplace_A$var_matrix ) )
+) %>% 
+  mutate(ci_lwr = post_mean - 2 * post_sd,
+         ci_upr = post_mean + 2 * post_sd) %>% 
+  select(term, ci_lwr, ci_upr)
+```
+```{r}
+modA %>% summary()
+```
+ 
 
 ### 3g)
 
@@ -541,16 +579,33 @@ You trained 5 Bayesian logistic regression models. Let's identify the best using
 **Calculate the posterior model weight associated with each of the 5 models. Create a bar chart that shows the posterior model weight for each model. The models should be named `'A'` through `'H'`.**  
 
 #### SOLUTION
+```{r}
+mod_log_evidences <- purrr::map_dbl(list(laplace_A, laplace_B, laplace_C, laplace_D,
+                                          laplace_E),
+                                     'log_evidence')
 
-Add your code chunks here.  
+all_model_weights <- exp( mod_log_evidences ) / sum(exp(mod_log_evidences))
+```
+
+```{r}
+tibble::tibble(
+  model_name = LETTERS[seq_along(all_model_weights)],
+  post_model_weight = all_model_weights
+) %>% 
+  ggplot(mapping = aes(x = model_name, y = post_model_weight)) +
+  geom_bar(stat = 'identity') +
+  coord_cartesian(ylim = c(0,1)) +
+  theme_bw()
+```
+ 
 
 ### 3h)
 
 **Is your Bayesian identified best model consistent with the non-Bayesian identified best model?**  
 
 #### SOLUTION
+This approach identifies model B as the best model and this is different from what i got earlier.
 
-What do you think?  
 
 ## Problem 04
 
@@ -579,14 +634,16 @@ As with previous linear model assignments, you must first generate random poster
 
 What do you think? Why do we need a new function compared to the previous assignments?  
 
-```{r, solution_04a, eval=FALSE}
+```{r, solution_04a, eval=TRUE}
 generate_glm_post_samples <- function(mvn_result, num_samples)
 {
   # specify the number of unknown beta parameters
-  length_beta <- 
+  length_beta <- length(mvn_result$mode)
   
   # generate the random samples
-  beta_samples <- 
+  beta_samples <- MASS::mvrnorm(n = num_samples,
+                                mu = mvn_result$mode,
+                                Sigma = mvn_result$var_matrix)
   
   # change the data type and name
   beta_samples %>% 
@@ -608,14 +665,14 @@ The `eta_mat` and `mu_mat` matrices are returned within a list, similar to how t
 
 #### SOLUTION
 
-```{r, solution_04b, eval=FALSE}
+```{r, solution_04b, eval=TRUE}
 post_logistic_pred_samples <- function(Xnew, Bmat)
 {
   # calculate the linear predictor at all prediction points and posterior samples
-  eta_mat <- 
+  eta_mat <- Xnew %*% t(Bmat)
   
   # calculate the event probability
-  mu_mat <-
+  mu_mat <- boot::inv.logit(eta_mat)
   
   # book keeping
   list(eta_mat = eta_mat, mu_mat = mu_mat)
@@ -637,24 +694,24 @@ The posterior summary statistics summarize the posterior samples. You must there
 
 #### SOLUTION
 
-```{r, solution_04c, eval=FALSE}
+```{r, solution_04c, eval=TRUE}
 summarize_logistic_pred_from_laplace <- function(mvn_result, Xtest, num_samples)
 {
   # generate posterior samples of the beta parameters
-  betas <- 
+  betas <- generate_glm_post_samples(mvn_result, num_samples)
   
   # data type conversion
   betas <- as.matrix(betas)
   
   # make posterior predictions on the test set
-  pred_test <- 
+  pred_test <- post_logistic_pred_samples(Xtest, betas)
   
   # calculate summary statistics on the posterior predicted probability
   # summarize over the posterior samples
   
   # posterior mean, should you summarize along rows (rowMeans) or 
   # summarize down columns (colMeans) ???
-  mu_avg <- 
+  mu_avg <- rowMeans(pred_test$mu_mat)
   
   # posterior quantiles
   mu_q05 <- apply(pred_test$mu_mat, 1, stats::quantile, probs = 0.05)
@@ -679,7 +736,12 @@ You will not make predictions from all 5 models that you previously trained. Ins
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+Xviz_B <- model.matrix(~ x2 + x3, data = viz_grid)
+Xviz_E <- model.matrix( ~ x1 + x2 * x3, data = viz_grid )
+Xviz_D <- model.matrix( ~ x1 * (x2 + x3), data = viz_grid )
+```
+
 
 ### 4e)
 
@@ -691,20 +753,21 @@ Summarize the posterior predicted event probability associated with the three mo
 
 The prediction summarizes should be executed in the code chunk below.  
 
-```{r, solution_04e_1, eval=FALSE}
+```{r, solution_04e_1, eval=TRUE}
 set.seed(8123) 
 
-post_pred_summary_D <- 
+post_pred_summary_B <- summarize_logistic_pred_from_laplace(laplace_B, Xviz_B, 2500)
+post_pred_summary_E <- summarize_logistic_pred_from_laplace(laplace_E, Xviz_E, 2500)
+post_pred_summary_D <- summarize_logistic_pred_from_laplace(laplace_D, Xviz_D, 2500)
 
-post_pred_summary_G <- 
-
-post_pred_summary_H <- 
 ```
 
 Print the dimensions of the objects to the screen.  
 
 ```{r, solution_04e_2}
-###
+post_pred_summary_B %>% dim()
+post_pred_summary_D %>% dim()
+post_pred_summary_E %>% dim()
 ```
 
 
@@ -739,7 +802,19 @@ viz_bayes_logpost_preds <- function(post_pred_summary, input_df)
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+viz_bayes_logpost_preds(post_pred_summary_B, viz_grid)
+
+```
+
+```{r}
+viz_bayes_logpost_preds(post_pred_summary_D, viz_grid)
+
+```
+```{r}
+viz_bayes_logpost_preds(post_pred_summary_E, viz_grid)
+
+```
 
 ### 4g)
 
@@ -780,7 +855,12 @@ You must specify the resampling scheme that caret will use to train, assess, and
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+my_ctrl <- trainControl(method = 'repeatedcv', number = 10, repeats = 3)
+
+my_metric <- "Accuracy"
+```
+
 
 ### 5b)
 
@@ -800,6 +880,15 @@ The random seed is set for you for reproducibility.
 
 ```{r, solution_05h}
 set.seed(1234)
+
+enet_default <- train( outcome ~ x1 * (x2 * x3 + + I(x2^2) + I(x3^2)),
+                       data = df_caret,
+                       method = 'glmnet',
+                       metric = my_metric,
+                       preProcess = c("center", "scale"),
+                       trControl = my_ctrl)
+
+enet_default
 ```
 
 
@@ -815,9 +904,21 @@ Create a custom tuning grid to further tune the elastic net `lambda` and `alpha`
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+my_lambda_grid <- exp(seq(log(min(enet_default$results$lambda)),
+                          log(max(enet_default$results$lambda)),
+                          length.out = 25))
+```
+
+```{r}
+enet_grid <- expand.grid(alpha = seq(0.1, 1.0, by = 0.1),
+                         lambda = my_lambda_grid)
+```
 
 How many?  
+```{r}
+enet_grid %>% dim()
+```
 
 ### 5d)
 
@@ -831,9 +932,23 @@ The random seed is set for you for reproducibility. You may add more code chunks
 
 ```{r, solution_05d}
 set.seed(1234)
+
+enet_tune <- train(outcome ~ x1 * (x2 * x3 + + I(x2^2) + I(x3^2)),
+                   data = df_caret,
+                   method = 'glmnet',
+                   metric = my_metric,
+                   tuneGrid = enet_grid,
+                   preProcess = c("center", "scale"),
+                   trControl = my_ctrl)
+
+plot(enet_tune, xTrans = log)
 ```
 
-What do you think?  
+What do you think? 
+```{r}
+enet_tune$bestTune
+```
+Alpha value of 0.3 and lambda of 0.01 are best parameters.
 
 ### 5e)
 
@@ -842,10 +957,10 @@ What do you think?
 #### SOLUTION
 
 ```{r, solution_05e}
-### add more code chunks if you'd like
+coef(enet_tune$finalModel, s = enet_tune$bestTune$lambda)
 ```
 
-What do you think?  
+Some of the parameters like x1C are now zero. 
 
 ### 5f)
 
@@ -856,7 +971,7 @@ Let's now visualize the predictions of the event probability from the tuned elas
 #### SOLUTION
 
 ```{r, solution_05f, eval=FALSE}
-pred_viz_enet_probs <- 
+pred_viz_enet_probs <- predict( enet_tune, newdata = viz_grid, type = 'prob' )
 ```
 
 ### 5g)
@@ -876,7 +991,15 @@ The glimpse reveals that the `event` column stores the **predicted event probabi
 
 #### SOLUTION
 
-Add your code chunk here.  
+```{r}
+viz_enet_df %>% 
+  ggplot(mapping = aes(x = x3, y = event)) +
+  geom_line(mapping = aes(color = x1),
+            size = 1.0) +
+  facet_wrap(~x2, labeller = 'label_both') +
+  theme_bw()
+```
+  
 
 ### 5h)
 
@@ -894,7 +1017,14 @@ What do you think?
 
 #### SOLUTION
 
-Add your code chunk here.  
+```{r}
+varImp(enet_tune)
+```
+(x3^2) is the most important feature in this case.
+
+```{r}
+plot(varImp(enet_tune))
+```
 
 ## Problem 06
 
