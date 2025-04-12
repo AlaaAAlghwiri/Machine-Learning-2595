@@ -6,7 +6,7 @@ date: "Submission time: "
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -1136,7 +1136,7 @@ Let's examine the random forest behavior through predictions.
 
 #### SOLUTION
 
-```{r, solution_06e, eval=FALSE}
+```{r, solution_06e, eval=TRUE}
 pred_viz_rf_probs <- predict( rf_default, newdata = viz_grid, type = 'prob' )
 ```
 
@@ -1144,7 +1144,7 @@ pred_viz_rf_probs <- predict( rf_default, newdata = viz_grid, type = 'prob' )
 
 The code chunk below is completed for you. The `pred_viz_rf_probs` dataframe is column binded to the `viz_grid` dataframe. The new object, `viz_rf_df`, provides the class predicted probabilities for each input combination in the visualization grid according to the random forest model. A glimpse is printed to the screen. Please not the `eval` flag is set to `eval=FALSE` in the code chunk below. You must change `eval` to `eval=TRUE` in the chunk options to make sure the code chunk below runs when you knit the markdown.  
 
-```{r, compile_rf_pred_obj, eval=FALSE}
+```{r, compile_rf_pred_obj, eval=TRUE}
 viz_rf_df <- viz_grid %>% bind_cols(pred_viz_rf_probs)
 
 viz_rf_df %>% glimpse()
@@ -1193,11 +1193,11 @@ Lastly, let's compare the various `caret` trained models based on our resampling
 
 #### SOLUTION
 
-```{r, solution_07a, eval=FALSE}
-caret_acc_compare <- resamples(list(ENET_default = ,
-                                    ENET_tune = ,
-                                    NNET_default = ,
-                                    RF_default = ))
+```{r, solution_07a, eval=TRUE}
+caret_acc_compare <- resamples(list(ENET_default = enet_default,
+                                    ENET_tune = enet_tune,
+                                    NNET_default = nnet_default,
+                                    RF_default = rf_default))
 ```
 
 
@@ -1211,12 +1211,15 @@ Visually compare the models based on the resampled Accuracy with a dotplot.
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+dotplot(caret_acc_compare)
+```
+  
 
 ### 7c)
 
 **How would you describe the differences in the predictions between the 3 types of models you trained in this application?**  
 
 #### SOLUTION
-
-What do you think?  
+The elastic net model is the best model in this case but with a very small amount. The accuracy and confidence interval for all models overlap with each other. In this case and for interpretability and simplicity reasons, I would go with the elastic net model. 
+ 
