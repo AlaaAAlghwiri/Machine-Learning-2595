@@ -970,7 +970,7 @@ Let's now visualize the predictions of the event probability from the tuned elas
 
 #### SOLUTION
 
-```{r, solution_05f, eval=FALSE}
+```{r, solution_05f, eval=TRUE}
 pred_viz_enet_probs <- predict( enet_tune, newdata = viz_grid, type = 'prob' )
 ```
 
@@ -978,7 +978,7 @@ pred_viz_enet_probs <- predict( enet_tune, newdata = viz_grid, type = 'prob' )
 
 The code chunk below is completed for you. The `pred_viz_enet_probs` dataframe is column binded to the `viz_grid` dataframe. The new object, `viz_enet_df`, provides the class predicted probabilities for each input combination in the visualization grid. A glimpse is printed to the screen. Please not the `eval` flag is set to `eval=FALSE` in the code chunk below. You must change `eval` to `eval=TRUE` in the chunk options to make sure the code chunk below runs when you knit the markdown.  
 
-```{r, compile_enet_pred_obj, eval=FALSE}
+```{r, compile_enet_pred_obj, eval=TRUE}
 viz_enet_df <- viz_grid %>% bind_cols(pred_viz_enet_probs)
 
 viz_enet_df %>% glimpse()
@@ -1050,7 +1050,17 @@ The random seed is set for you for reproducibility. You may add more code chunks
 
 ```{r, solution_06a}
 set.seed(1234)
+
+nnet_default <- train( outcome ~ x1 + x2 + x3,
+                       data = df_caret,
+                       method = 'nnet',
+                       metric = my_metric,
+                       preProcess = c("center", "scale"),
+                       trControl = my_ctrl,
+                       trace = FALSE)
+print(nnet_default)
 ```
+
 
 ### 6b)
 
@@ -1060,15 +1070,15 @@ Let's use predictions to understand the behavior of the neural network! Predicti
 
 #### SOLUTION
 
-```{r, solution_06b, eval=FALSE}
-pred_viz_nnet_probs <- 
+```{r, solution_06b, eval=TRUE}
+pred_viz_nnet_probs <- predict( nnet_default, newdata = viz_grid, type = 'prob' )
 ```
 
 ### 6c)
 
 The code chunk below is completed for you. The `pred_viz_nnet_probs` dataframe is column binded to the `viz_grid` dataframe. The new object, `viz_nnet_df`, provides the class predicted probabilities for each input combination in the visualization grid. A glimpse is printed to the screen. Please not the `eval` flag is set to `eval=FALSE` in the code chunk below. You must change `eval` to `eval=TRUE` in the chunk options to make sure the code chunk below runs when you knit the markdown.  
 
-```{r, compile_nnet_pred_obj, eval=FALSE}
+```{r, compile_nnet_pred_obj, eval=TRUE}
 viz_nnet_df <- viz_grid %>% bind_cols(pred_viz_nnet_probs)
 
 viz_nnet_df %>% glimpse()
@@ -1081,7 +1091,14 @@ The glimpse reveals that the `event` column stores the **predicted event probabi
 
 #### SOLUTION
 
-Add your code chunk here.  
+```{r}
+viz_nnet_df |>
+        ggplot(mapping = aes(x = x3, y = event)) +
+        geom_line(mapping = aes(color = x1),
+                  size = 1.2) +
+        facet_wrap(~x2, labeller = 'label_both') 
+```
+  
 
 ### 6d)
 
@@ -1099,6 +1116,16 @@ The random seed is set for you for reproducibility. You may add more code chunks
 
 ```{r, solution_06d}
 set.seed(1234)
+
+rf_default <- train( outcome ~ x1 + x2 + x3,
+                       data = df_caret,
+                       method = 'rf',
+                       metric = my_metric,
+                       #preProcess = c("center", "scale"),
+                       trControl = my_ctrl,
+                       trace = FALSE,
+                     importance = TRUE)
+print(rf_default)
 ```
 
 ### 6e)
@@ -1110,7 +1137,7 @@ Let's examine the random forest behavior through predictions.
 #### SOLUTION
 
 ```{r, solution_06e, eval=FALSE}
-pred_viz_rf_probs <- 
+pred_viz_rf_probs <- predict( rf_default, newdata = viz_grid, type = 'prob' )
 ```
 
 ### 6f)
@@ -1130,7 +1157,15 @@ The glimpse reveals that the `event` column stores the **predicted event probabi
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+viz_rf_df |>
+        ggplot(mapping = aes(x = x3, y = event)) +
+        geom_line(mapping = aes(color = x1),
+                  size = 1.2) +
+        facet_wrap(~x2, labeller = 'label_both')
+
+```
+
 
 ### 6g)
 
@@ -1140,7 +1175,11 @@ You should have included `importance = TRUE` in the `caret::train()` call in 6d)
 
 #### SOLUTION
 
-Add your code chunks here.  
+```{r}
+plot(varImp(rf_default))
+```
+
+X3 is the most important feature and this agrees with what i had previously for the elastic net model. The difference is that in the elastic net model, we've included interaction terms but in the random forest model we have not.
 
 ## Problem 07
 
