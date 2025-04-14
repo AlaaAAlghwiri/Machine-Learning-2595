@@ -1,0 +1,1180 @@
+---
+title: "Mohammad Hajjaj- Part iii : Classification GLM"
+author: "Mohammad Hajjaj 2"
+date: "2023-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Load packages and read in the data set
+
+```{r, load_summaryverse}
+library(tidyverse)
+library(dplyr)
+library(reshape2)
+library(gridExtra)
+library(caret)
+library(rpart)
+library(randomForest)
+library(boot)
+library(coefplot)
+library(ggrepel)
+library(rstanarm)
+library(readr)
+library(broom)
+library(caret)
+library(glmnet)
+library(nnet)
+library(xgboost)
+library(broom.mixed)
+library(splines)
+#library(MASS)
+library(glmnet)
+library(e1071)
+library(pROC)
+```
+
+```{r, read_final_data}
+df <- readr::read_csv("paint_project_train_data.csv", col_names = TRUE)
+```
+
+```{r, paint_project_holdout_data}
+df_test <- readr::read_csv("paint_project_holdout_data.csv", col_names = TRUE)
+```
+
+### Part iii : Classification iiiA ) GLM :
+
+##  Data preparation:
+##Binary output variable, outcome.
+
+```{r,Binary output}
+df %>% pull(outcome) %>% class()
+```
+##  two unique values for outcome:
+
+```{r,unique values}
+df %>% count(outcome)
+
+```
+```{r, eval=TRUE}
+dfii <- df %>% 
+  mutate(y = boot::logit( (response - 0) / (100 - 0) ) )# %>% 
+  # select(R, G, B, Lightness, Saturation, Hue, y)
+```
+
+```{r, data manipulation 1, eval=TRUE}
+dfiiiD <- df %>% 
+  dplyr::select(-response) %>% 
+  mutate(outcome = ifelse(outcome == 1, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c('event', 'non_event')))
+dfiiiD %>% glimpse()
+
+```
+
+
+
+ 
+```{r, outcome results }
+dfiiiD %>% pull(outcome) %>% levels()
+```
+ 
+```{r, Number of event vers non_event}
+dfiiiD %>% count(outcome)
+```
+ 
+ 
+ 
+
+## The relationship between the binary outcome y and the continuous inputs R , G, B and Hue.
+
+```{r}
+  data_long <- dfiiiD %>% 
+pivot_longer(cols = c(R, G, B, Hue, Hue ), names_to = "Variable", values_to = "Value")
+
+ggplot(data_long, aes(x = Value, y = outcome)) +
+  geom_point() +
+
+  facet_wrap(~ Variable, scales = "free") +
+  labs(x = "Value", y = "y") +
+  ggtitle("Scatter Plots of R , G, B,Hue  y")         
+```
+
+
+### I ahve  found that the 'R' value, which represents the red color intensity, plays a role in predicting events. When 'R' goes up, the likelihood of an event drops a bit.
+
+We also looked at some graphs that show how 'R' and other factors like 'G', 'B', and 'Hue' relate to whether an event happens or not. These helped us see that 'R' and some specific saturation types are pretty good indicators.
+
+
+### Fit Generalized Linear Models (GLMs):
+
+```{r,Fit Generalized Linear Models (GLMs), eval=TRUE}
+# Intercept only model (no inputs)
+model1 <- glm(outcome ~ 1, data = dfiiiD, family = binomial)
+
+# Categorical variables only (Lightness and Saturation as factors)
+model2 <- glm(outcome ~ factor(Lightness) + factor(Saturation), data = dfiiiD, family = binomial)
+
+# Continuous Variables Only (R, G, B, and Hue)
+model3 <- glm(outcome ~ R + G + B + Hue, data = dfiiiD, family = binomial)
+
+# All Variables including interactions
+model4 <- glm(outcome ~ R + G + B + Hue + factor(Lightness) + factor(Saturation), data = dfiiiD, family = binomial)
+
+# Interaction of Categorical Inputs with All Continuous Inputs (Main Effects)
+model5 <- glm(outcome ~ (factor(Lightness) + factor(Saturation)) * (R + G + B + Hue), data = dfiiiD, family = binomial)
+
+# Add Categorical Inputs to All Main Effects and All Pairwise Interactions of Continuous Inputs
+model6 <- glm(outcome ~ (R + G + B + Hue)^2 + factor(Lightness) + factor(Saturation), data = dfiiiD, family = binomial)
+
+# Interaction of Categorical Inputs with All Main Effects and All Pairwise Interactions of Continuous Inputs
+model7 <- glm(outcome ~ (Lightness + Saturation) * (R + G + B + Hue)^2, data = dfii, family = binomial)
+
+# Models with Basis Functions of Your Choice: Polynomial basis
+model8 <- glm(outcome ~ poly(R, 2) + poly(G, 2) + poly(B, 2) + poly(Hue, 2) + factor(Lightness) + factor(Saturation), data = dfiiiD, family = binomial)
+
+# Model 9: Natural splines (for R only)
+model9 <- glm(outcome ~ splines::ns(R, 3) + G + B + Hue + factor(Lightness) + factor(Saturation), data = dfiiiD, family = binomial)
+
+# Model 10: Quadratic term for Hue (for R, G, B, and Hue)
+model10 <- glm(outcome ~ R + G + B + I(Hue^2) + Lightness * Saturation, data = dfiiiD, family = binomial)
+
+```
+
+# Can consider interactions of basis functions with other basis functions?
+
+  Yes, you can have interactions between basis functions to capture complex patterns, but wee need to keep our eye out for over fitting.
+
+# Can consider interactions of basis functions with the categorical inputs?
+
+  Yes, interactions between basis functions and categorical inputs can be included in a model to explore how the relationship between the predictor variables and the response variable changes across the levels of the categorical variable. This can provide a more nuanced understanding of the data.
+  
+  ## Train 10 different models!
+```{r, train_control, eval=TRUE}
+ 
+train_control <- trainControl(method = "cv", 
+                              number = 5, 
+                              summaryFunction = twoClassSummary,
+                              classProbs = TRUE,
+                              savePredictions = TRUE)
+
+metric_roc <- "ROC"
+```
+
+
+## Intercept only model
+```{r,  Intercept only model, eval=TRUE}
+dfiiiD$dummy <- 1
+set.seed(123)
+mod_1_train <- train( outcome ~ dummy , 
+                                data = dfiiiD, 
+                                method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+## Categorical variables only
+```{r,Categorical variables only , eval=TRUE}
+
+set.seed(123)
+mod_2_train <- train( outcome ~  factor(Lightness) +
+                                 factor(Saturation), 
+                                data = dfiiiD, 
+                                method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+## Continuous Variables Only
+```{r, Continuous Variables Only, eval=TRUE}
+
+set.seed(123)
+mod_3_train <- train(outcome ~ R + G + B + Hue,
+                     data = dfiiiD, 
+                     method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+## All Variables including interactions
+```{r, All Variables including interactions, eval=TRUE}
+
+set.seed(123)
+mod_4_train <- train(outcome ~ R + G + B + Hue +
+                       factor(Lightness) + factor(Saturation),
+                     data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+
+```
+##  Interaction of Categorical Inputs with All Continuous Inputs
+```{r, Interaction of Categorical Inputs with All Continuous Inputs, eval=TRUE}
+
+set.seed(123)
+mod_5_train <- train(outcome ~ (factor(Lightness) + 
+                                  factor(Saturation)) * 
+                       (R + G + B + Hue),
+                     data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+
+
+## Add Categorical Inputs to All Main Effects and All Pairwise Interactions of Continuous Inputs
+```{r, Model6}
+set.seed(123)
+mod_6_train <- train(outcome ~ (Lightness + Saturation) * (R + G + B + Hue),
+                      data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+
+## # Interaction of Categorical Inputs with All Main Effects and All Pairwise Interactions of Continuous Inputs
+
+```{r, Model7,eval=TRUE}
+set.seed(123)
+mod_7_train <- train(outcome ~(Lightness + Saturation)*
+                       (R + G + B + Hue)^2,
+                     data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+##Basis Functions of Your Choice:
+
+```{r , Polynomial basis,eval=TRUE}
+set.seed(123)
+mod_8_train <- train(outcome ~ poly(R, 2) + poly(G, 2) + 
+                       poly(B, 2) + poly(Hue, 2) + 
+                       factor(Lightness) + factor(Saturation),
+                     data = dfiiiD, 
+                     method = 'glm',
+                     metric = metric_roc,
+                     trControl = train_control)
+```
+
+## Natural splines (for R) 
+
+```{r, Natural splines (for R), eval=TRUE }
+set.seed(123)
+mod_9_train <- train(outcome ~ splines::ns(R, 3) + G + B + Hue + Lightness + Saturation,
+                     data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+## Quadratic term for Hue (for R, G, B, and Hue)
+```{r, Quadratic term,eval=TRUE}
+set.seed(123)
+mod_10_train <- train(outcome ~ R + G + B + I(Hue^2) + Lightness * Saturation,
+                     data = dfiiiD, 
+                    method = 'glm',
+                                metric =  metric_roc,
+                                trControl = train_control)
+```
+
+
+
+## resamples  all trainig modules module model:
+
+```{r, resamples  all module model  }
+       acc_results <- resamples(list(
+         mod_1 = mod_1_train,
+         mod_2 = mod_2_train,
+         mod_3 = mod_3_train,
+         mod_4 = mod_4_train,
+         mod_5 = mod_5_train,
+         mod_6 = mod_6_train,
+         mod_7 = mod_7_train,
+         mod_8 = mod_8_train,
+         mod_9 = mod_9_train,
+         mod_10 = mod_10_train
+         ))  
+```
+
+
+###  Yes , i have a warnings while I'm  fitting the modles 7.
+
+## Summry of all training modules:
+```{r, Summry of all training modules}
+summary(acc_results,  metric = 'ROC', )
+```
+
+## Twe will use the confidence interval to assess which models are definitely better or worse than other based on if the confidence intervals overlap or not.
+  
+
+```{r, confidence interval}
+dotplot(acc_results, metric = 'ROC')
+```
+
+##  returns the summaries for all three performance metrics: ROC AUC, Sensitivity, and Specificity
+
+```{r, summaries  for all three performance metrics: ROC AUC, Sensitivity, and Specificity }
+summary(acc_results)
+```
+
+
+```{r}
+dotplot(acc_results)
+
+```
+
+```{r}
+compile_all_model_preds <- function(m1, m2, m3, m4, m5, m6, m7, m8)
+{
+  purrr::map2_dfr(list(m1, m2, m3, m4, m5, m6, m7, m8),
+                  as.character(seq_along(list(m1, m2, m3, m4, m5, m6, m7, m8))),
+                  function(ll, lm){
+                    ll$pred %>% tibble::as_tibble() %>% 
+                      select(classes, event, Resample) %>% 
+                      mutate(model_name = lm)
+                  })
+}
+
+```
+
+
+```{r}
+compile_all_model_preds <- function(m1, m2, m3, m4, m5, m6, m7, m8,m9,m10) {
+  purrr::map2_dfr(
+    list(m1, m2, m3, m4, m5, m6, m7, m8,m9,m10),
+    seq_along(list(m1, m2, m3, m4, m5, m6, m7, m8,m9,m10)),
+    function(model, index) {
+      model$pred %>% 
+        tibble::as_tibble() %>% 
+        dplyr::select(
+         obs = obs, 
+                    event = event, 
+                    Resample = Resample) %>%
+        dplyr::mutate(model_name = paste0("mod_", index))
+    }
+  )
+}
+
+
+```
+
+```{r}
+
+all_model_preds <- compile_all_model_preds(mod_1_train, mod_2_train, mod_3_train, 
+                                           mod_4_train, mod_5_train,
+                                           mod_6_train, mod_7_train, 
+                                           mod_8_train,
+                                           mod_9_train,
+                                           mod_10_train)
+
+#all_model_preds
+```
+
+```{r}
+library(yardstick)
+
+all_model_preds %>%
+  group_by(model_name) %>%
+  roc_curve(obs, event) %>%
+  autoplot()
+```
+## The baest 3 modules is module 8, (5 or 6) and 4.
+
+
+### Visualize the coefficient summaries for your top 3 models:
+
+```{r, model 8}
+coefplot(mod_8_train, pars = names(mod_8_train$coefficients), title = "Coefficient Plot for Model 8") + 
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 2.) +
+  theme_bw()
+
+```
+
+```{r, model 5}
+
+coefplot(mod_5_train, pars = names(mod_5_train$coefficients),title = "Coefficient Plot for Model 5") + 
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 2.) +
+  theme_bw()
+
+```
+
+```{r}
+coefplot(mod_4_train, pars = names(mod_4_train$coefficients),title = "Coefficient Plot for Model 4") + 
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 2.) +
+  theme_bw()
+```
+
+##  How do the coefficient summaries compare between the top 3?
+
+  Looking at the data from the three models, we see that for Model 5, almost all the factors we checked don't really affect our results. There's one big exception that really stands out, but the rest don't make much of a difference. For Model 8, things are a bit more complicated. Some factors have a bigger and more complex influence on the results. And then with Model 4, it's like Model 5 in that most factors don't do much, and there's nothing too complex going on there either. So, if we want to keep things simple, I would like to lean twered  Model 4.
+
+## Which inputs seem important?
+
+The important input for module 8 is poly(Hue, 2),
+                poly(R, 2),poly(G, 2), poly(B, 2).
+The important input for module 4
+
+
+###----------------------------------------------------------------------------##
+           Part iii: Classification
+          iiiB     Bayesian GLM
+###___________________________________________________________________________##
+
+```{r, Model 8}
+bayes_model_8 <- stan_glm(outcome ~ poly(R, 2) + poly(G, 2) + 
+                       poly(B, 2) + poly(Hue, 2) + 
+                       factor(Lightness) + factor(Saturation),
+                             
+                          data = dfiiiD, 
+                          family = binomial(link = "logit"),
+                          prior = normal(0, 2.5), 
+                          seed = 123)
+
+```
+
+```{r, baye svae Module8}
+bayes_model_8%>% readr::write_rds("bayes_ayes_model_8.rds")
+```
+
+```{r,baye re_load_mod08}
+re_load_mod08 <- readr::read_rds("bayes_ayes_model_8.rds")
+
+```
+
+```{r, summary baye re_load_mod08}
+re_load_mod08 %>% summary()
+
+```
+
+```{r, Model 4}
+bayes_model_4 <- stan_glm(outcome ~ R + G + B + Hue +
+                       factor(Lightness) + factor(Saturation),
+                          data = dfiiiD, 
+                          family = binomial(link = "logit"),
+                          prior = normal(0, 2.5),  
+                          seed = 123)
+```
+
+```{r, baye svae Module4}
+bayes_model_4%>% readr::write_rds("bayes_bayes_model_4.rds")
+```
+
+```{r,baye re_load_mod04}
+re_load_mod04 <- readr::read_rds("bayes_bayes_model_4.rds")
+
+```
+
+```{r, summary baye re_load_mod04}
+re_load_mod04 %>% summary()
+
+```
+
+```{r, posterior_intervalfor modlo5}
+posterior_interval(re_load_mod08)
+```
+
+```{r, posterior_intervalfor modlo4}
+posterior_interval(re_load_mod04)
+```
+
+
+
+
+### Bayesian coefficient for module 5.
+
+```{r, Bayesian_mod05}
+plot(re_load_mod08, pars = names(re_load_mod08$coefficients)) + 
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 2.) +
+  theme_bw()
+```
+
+
+### Bayesian coefficient for module 4.
+
+```{r, Bayesian_mod04}
+plot(re_load_mod04, pars = names(re_load_mod04$coefficients)) + 
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 2.) +
+  theme_bw()
+```
+
+```{r}
+
+purrr::map2_dfr(list(re_load_mod08, re_load_mod04),
+                as.character(1:2),
+                function(mod, mod_name){tibble::tibble(rsquared = bayes_R2(mod)) %>% 
+                    mutate(model_name = mod_name)}) %>% 
+  ggplot(mapping = aes(x = rsquared)) +
+  geom_freqpoly(bins = 55,
+                 mapping = aes(color = model_name),
+                 size = 1.1) +
+  coord_cartesian(xlim = c(0, 1)) +
+  ggthemes::scale_color_colorblind("Model 8 AND 4") +
+  theme_bw()
+```
+
+```{r, mod08}
+loo_1 <- loo(re_load_mod08)
+
+```
+
+```{r, ploting mod08}
+plot(loo_1, label_points = TRUE)
+
+```
+
+
+```{r ,eval = TRUE}
+loo_1_b <- loo(re_load_mod08, k_threshold = 0.7)
+```
+
+### Save and raed mod08 threshold :
+```{r, Save mod05 threshold}
+loo_1_b %>% readr::write_rds("threshold_loo_8_b.rds")
+```
+
+```{r, re_load mod04 threshold1}
+re_load_mod05 <- readr::read_rds("threshold_loo_8_b.rds")
+
+```
+##---------------...................-----------------
+
+
+```{r}
+loo_2 <- loo(re_load_mod04)
+
+```
+
+
+```{r}
+plot(loo_2, label_points = TRUE)
+```
+
+
+
+
+
+```{r, mod04 threshold}
+loo_2_b <- loo(re_load_mod04, k_threshold = 0.7)
+```
+
+
+
+### Save and raed :
+```{r, Save mod04 threshold}
+loo_2_b %>% readr::write_rds("threshold_loo_2_b.rds")
+```
+
+```{r, re_load mod04 threshold}
+re_load_mod04 <- readr::read_rds("threshold_loo_2_b.rds")
+
+```
+##---------------...................-----------------
+
+## let's now compare the 2 models based on the LOOCV metric:
+
+```{r}
+loo_compare(loo_1, loo_2)
+```
+So the re_load_mod04  and re_load_mod08 have essentially the same performance.
+
+
+## let’s now rank the models based on the more accurate LOOCV metrics
+
+```{r, rank the models }
+loo_compare(loo_1_b, loo_2_b)
+
+```
+
+We are quite confident that Module 4  is better than Module 8.
+
+## Part iii: Classification iiiC ) GLM Predictions:
+
+## confidence_intervals
+```{r include=FALSE}
+add_confidence_intervals <- function(model, newdata) {
+  predictions_with_se <- predict(model, newdata = newdata, type = "response", se.fit = TRUE)
+  conf_int <- with(predictions_with_se, cbind(fit - (1.96 * se.fit), fit + (1.96 * se.fit)))
+  newdata$predicted <- predictions_with_se$fit
+  newdata$conf_low <- conf_int[, 1]
+  newdata$conf_high <- conf_int[, 2]
+  newdata
+}
+```
+
+
+## create_single_plot
+
+```{r echo=FALSE}
+create_single_plot <- function(data, x_var) {
+  ggplot(data, aes_string(x = x_var, y = 'predicted')) +
+    geom_point(size = 1, color = "blue") +
+    geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.20, color = "gray", size=0.50) +
+    facet_grid(factor(Saturation) ~ fct_relevel(factor(Lightness), "dark", "deep", "light", "midtone", "pale", "saturated", "soft")) +
+    labs(title = paste('Predicted Event Probability by', x_var, 'with Lightness and Saturation Facets module 4'),
+         x = x_var, y = 'Predicted Probability') +
+    theme_minimal() +
+    theme(text = element_text(size = 12), legend.position = "bottom")
+    
+  
+}
+
+```
+
+##Module 4 predictions:
+```{r, results of module 4 predictions }
+model_name <- "model4"
+Module4_predictios <- add_confidence_intervals(model4, df_test)
+
+# Generate and save plots
+variable_names <- c('R', 'G', 'B', 'Hue')
+for (var_name in variable_names) {
+  plot <- create_single_plot(Module4_predictios, var_name)
+   coord_cartesian(expand = c(0.10, 0.10))
+ print(plot)
+}
+```
+
+## Module4 summary predictions
+```{r,Module4 summary predictions}
+Module4_predictios %>% summary()
+```
+
+
+
+
+
+
+## Module 8  Predictions:
+
+```{r, results of module 8 predictions }
+
+Module8_predictios <- add_confidence_intervals(model8, df_test)
+
+# Generate and save plots
+variable_names <- c('R', 'G', 'B', 'Hue')
+for (var_name in variable_names) {
+  plot <- create_single_plot(Module8_predictios, var_name)
+ print(plot)
+}
+```
+## Summary of Predictions from Module 8:
+```{r, df_test_enhanced prediction module 8}
+summary(Module8_predictios)
+```
+
+
+### Classification iiiD ) Train/tune with resampling:
+
+--------------------------------------------------------------
+## regularization penalty parameter's
+```{r, regularization penalty parameter1}
+tuneGrid <- expand.grid(.alpha = seq(0, 1, 
+                                     length = 10),
+                        .lambda = 10^seq(-3, -1,
+                                         length = 100))
+```
+
+
+#Generalized linear models:
+
+# Train the model with the tuning grid
+
+## All categorical and continuous inputs linear additive features
+```{r, mod_4 TUNE Generalized}
+set.seed(123)
+mod_4_train_Generalized <- train(outcome ~ R + G + B + Hue + 
+                       factor(Lightness) + factor(Saturation),
+                     data = dfiiiD, 
+                     method = 'glmnet',
+                      
+                     metric =  metric_roc,
+                     trControl = train_control,
+                     trace = FALSE)
+
+```
+
+```{r, TUNE Module 4 Generalized}
+plot(mod_4_train_Generalized , rep = 'best', show.weights = FALSE)
+```
+
+## All categorical and continuous inputs linear additive features
+
+```{r, module 6 Tune Generalized }
+set.seed(123)
+mod_6_train_Generalized <- train(
+  outcome ~ (R + G + B + Hue)^2 + factor(Lightness) + factor(Saturation),
+   data = dfiiiD, 
+                     method = 'glmnet',
+                       
+                     metric =  metric_roc,
+                     trControl = train_control)
+```
+
+```{r,Tune Module 6 Generalized}
+plot(mod_6_train_Generalized, rep = 'best', show.weights = FALSE)
+```
+
+## Module 7
+```{r, module 7_Tune Generalized 1}
+set.seed(123)
+mod_7_train_TGeneralized <- train(  outcome ~ (factor(Lightness) + 
+                          factor(Saturation)) * (R + G + B + Hue)^2,
+                            data = dfiiiD, 
+                     method = 'glmnet',
+                      metric =  metric_roc,
+                     trControl = train_control)
+```
+
+```{r, Tune_Module 7 Generalized 2}
+plot(mod_7_train_TGeneralized )
+```
+
+
+
+# Regularized regression with Elastic net
+
+
+## Module 6
+```{r, Regularized regression with Elastic net, Module 6 }
+set.seed(123)
+mod_6_train_RE <- train(
+  outcome ~ (R + G + B + Hue)^2 + factor(Lightness) + factor(Saturation),
+   data = dfiiiD, 
+                     method = 'glmnet',
+                     tuneGrid = tuneGrid,  
+                     metric =  metric_roc,
+                     trControl = train_control)
+
+```
+
+```{r, plot Regularized regression with Elastic net, Module 6 }
+plot(mod_6_train_RE)
+```
+
+```{r, module_7_Tune}
+set.seed(123)
+mod_7_train_Tune <- train(  outcome ~ (factor(Lightness) + 
+                          factor(Saturation)) * (R + G + B + Hue)^2,
+                            data = dfiiiD, 
+                     method = 'glmnet',
+                     tuneGrid = tuneGrid,
+                      metric =  metric_roc,
+                     trControl = train_control)
+```
+
+```{r,Tune Module_7}
+plot(mod_7_train_Tune)
+```
+
+##  Neural network
+```{r, module 7 Tune}
+set.seed(123)
+mod_7_train_Tune <- train(  outcome ~ (factor(Lightness) + 
+                          factor(Saturation)) * (R + G + B + Hue)^2,
+                            data = dfiiiD, 
+                     method = 'glmnet',
+                     tuneGrid = tuneGrid,
+                      metric =  metric_roc,
+                     trControl = train_control)
+```
+
+```{r, Tune_Module 7}
+plot(mod_7_train_Tune)
+```
+
+
+## Gradient Boosting model:
+
+```{r, Gradient Boosting model}
+set.seed(123)
+
+model_gb <- train(
+  outcome ~ Lightness + Saturation + R + G + B + Hue, 
+  data = dfiiiD, 
+  method = 'gbm',  # Correct method for Gradient Boosting
+  trControl = train_control, 
+  preProcess = c("center", "scale"),
+  metric = metric_roc,
+  verbose = FALSE  # Optional: set to FALSE to reduce console output
+)
+
+```
+
+
+```{r,model_gb result}
+model_gb
+```
+## Best tuning parameter:
+```{r, model_rf result}
+  print(model_gb$bestTune)
+ 
+```
+
+```{r, plot Gradient Boosting model}
+
+plot(model_gb, rep = 'best', show.weights = FALSE)
+```
+
+
+# Train the Random Forest model
+
+```{r,Random Forest}
+set.seed(123)
+
+model_rf <- train(
+  outcome ~ Lightness + Saturation + R + G + B + Hue, 
+  data = dfiiiD, 
+  method = 'rf',  # Method for Random Forest
+  trControl = train_control,
+  metric = metric_roc,
+  importance = TRUE
+)
+
+```
+
+```{r, model_rf resul rsults}
+model_rf
+```
+
+
+## Best tuning parameter:
+```{r, Best tuning parameter:}
+  print(model_rf$bestTune)
+
+```
+
+```{r}
+
+plot(model_gb)
+
+```
+## Neural Network Model:
+```{r,model_nnet}
+set.seed(123)
+
+model_nnm <- train(
+  outcome ~ Lightness + Saturation + R + G + B + Hue,
+  data = dfiiiD,
+  method = 'nnet', 
+  trControl = train_control,
+  preProcess = c("center", "scale"),  
+  tuneGrid = expand.grid(size = c(5, 10), decay = c(0.1, 0.001)),
+  metric = metric_roc,
+  trace = FALSE  
+)
+```
+
+```{r, model_nnet results}
+model_nnm
+```
+
+##  best tuning parameters
+```{r, best tuning parameters}
+print(model_nnm$bestTune)
+
+```
+
+```{r}
+plot(model_nnm)
+```
+## SVM Model
+```{r, SVM_Model}
+set.seed(123)
+
+model_svm <- train(
+  outcome ~ Lightness + Saturation + R + G + B + Hue,
+  data = dfiiiD,
+  method = 'svmLinear',  
+  trControl = train_control,
+  preProcess = c("center", "scale"), 
+  metric = metric_roc
+)
+
+```
+
+```{r, SVM_Model1}
+model_svm 
+```
+
+##  best tuning parameters
+```{r, best tuning parameters SVM}
+print(model_svm$bestTune)
+```
+
+## Partial least squares:
+
+```{r, Partial least squares}
+set.seed(123)
+
+model_pls <- train(
+  outcome ~ Lightness + Saturation + R + G + B + Hue,
+  data = dfiiiD,
+  method = 'pls',
+  trControl = train_control,
+  preProcess = c("center", "scale"),  # Feature scaling is often helpful
+  tuneLength = 10,  # Number of components to consider
+  metric = metric_roc
+)
+
+```
+
+```{r, SVM Model}
+model_pls 
+```
+
+##  best tuning parameters
+```{r, Partial least squares:}
+print(model_pls$bestTune)
+```
+
+
+## list resamples
+```{r}
+   Tun_list <- resamples(list(
+         mod_4_train_Generalized = mod_4_train_Generalized,
+  mod_6_train_Generalized = mod_6_train_Generalized,
+  mod_7_train_TGeneralized = mod_7_train_TGeneralized,
+  mod_6_train_RE = mod_6_train_RE,
+  mod_7_train_Tune = mod_7_train_Tune,
+  model_gb = model_gb,
+  model_rf = model_rf,
+  model_nnm = model_nnm,
+  mod_7_train_Tune_2 = mod_7_train_Tune,  # Assuming this is different from the first mod_7_train_Tune
+  model_svm = model_svm,
+  model_pls = model_pls
+         )    
+)
+```
+
+
+
+
+```{r, summry for all Tune Module}
+summary(Tun_list)
+```
+
+```{r, confidence Level of all Tune module}
+dotplot(acc_results)
+
+```
+
+
+```{r, ROC confidence Level of all Tune module}
+dotplot(acc_results, metric = 'ROC')
+
+```
+
+
+
+
+
+```{r, all_model_Tune_preds}
+
+all_model_Tune_preds <- compile_all_model_preds(mod_4_train_Generalized, mod_6_train_Generalized, mod_7_train_TGeneralized, 
+                                           mod_6_train_RE, mod_7_train_Tune,
+                                           model_gb, model_rf, 
+                                           model_nnm,
+                                           model_svm,
+                                           model_pls)
+
+#all_model_preds
+```
+
+
+## averaged ROC curves are compared across all 10 models:
+
+```{r,  ROC curves}
+all_model_Tune_preds %>%
+  group_by(model_name) %>%
+  roc_curve(obs, event) %>%
+
+  autoplot()
+```
+
+```{r}
+
+
+glm_preds <- mod_4_train_Generalized$pred %>%
+  dplyr::filter(alpha == mod_4_train_Generalized$bestTune$alpha,
+         lambda == mod_4_train_Generalized$bestTune$lambda) %>%
+  dplyr::select(pred, obs, event, non_event, rowIndex, Resample) %>%
+  mutate(model_name = "GLM")
+
+
+
+nnet_preds <- model_nnm$pred %>%
+  dplyr::filter(size == model_nnm$bestTune$size, decay == model_nnm$bestTune$decay) %>%
+  dplyr::select(pred, obs, event, non_event, rowIndex, Resample) %>%
+  dplyr::mutate(model_name = "NNET")
+
+pls_preds <- model_pls$pred %>%
+  dplyr::filter(ncomp == model_pls$bestTune$ncomp) %>%
+  dplyr::select(pred, obs, event, non_event, rowIndex, Resample) %>%
+  dplyr::mutate(model_name = "PLS")
+
+rf_preds <- model_rf$pred %>%
+  dplyr::filter(mtry == model_rf$bestTune$mtry) %>%
+  dplyr::select(pred, obs, event, non_event, rowIndex, Resample) %>%
+  dplyr::mutate(model_name = "RF")
+
+svm_preds <- model_svm$pred %>%
+  dplyr::filter(C == model_svm$bestTune$C) %>%
+  dplyr::select(pred, obs, event, non_event, rowIndex, Resample) %>%
+  dplyr::mutate(model_name = "SVM")
+
+# Combine all predictions into a single data frame
+combined_preds <- bind_rows(
+  glm_preds %>% mutate(model_name = "GLM"),
+  nnet_preds %>% mutate(model_name = "NNET"),
+  pls_preds %>% mutate(model_name = "PLS"),
+  rf_preds %>% mutate(model_name = "RF"),
+  svm_preds %>% mutate(model_name = "SVM")
+)
+
+combined_preds <- bind_rows(
+  glm_preds,
+  nnet_preds,
+  pls_preds,
+  rf_preds,
+  svm_preds
+)
+calculate_roc <- function(data, model_name) {
+  roc_curve <- roc(response = data$obs, predictor = data$event)
+  data.frame(
+    tpr = roc_curve$sensitivities,
+    fpr = 1 - roc_curve$specificities,
+    model_name = model_name
+  )
+}
+
+# Calculate ROC data for each model
+roc_data <- list(
+  glm = calculate_roc(filter(combined_preds, model_name == "GLM"), "GLM"),
+  nnet = calculate_roc(filter(combined_preds, model_name == "NNET"), "NNET"),
+  pls = calculate_roc(filter(combined_preds, model_name == "PLS"), "PLS"),
+  rf = calculate_roc(filter(combined_preds, model_name == "RF"), "RF"),
+  svm = calculate_roc(filter(combined_preds, model_name == "SVM"), "SVM")
+) %>% bind_rows()
+
+# Plot ROC curves
+ggplot(roc_data, aes(x = fpr, y = tpr, color = model_name)) +
+  geom_line() +
+  coord_equal() +
+  labs(x = "False Positive Rate", y = "True Positive Rate") +
+  #facet_wrap(~model_name) +
+  theme_minimal()
+
+```
+
+
+### Part iv: Interpretation ivA ) Input Importance:
+## The best model is the  Random Forest module.
+
+```{r, Interpretation ivA}
+plot(varImp(model_rf))
+```
+## I can see the 'Hue' is the moste important variable.
+
+Yes, I can see the 'Hue'  color is dominate other color , 
+and Yes, there is other color is not helpful at all.
+
+```{r}
+model_rf
+```
+
+ Based on the Random Forest module result's, 
+Assuming that we are using 80% as a threshold for a sufficient enough model,
+the classification model are performing satisfactorily
+. In this case, AUC was used for the classification model and 
+R-squared value for the regression model.
+Ultimately, colours are good enough to identify popular paints 
+
+
+Also, as appear on the importance's graph above:
+The hardest to predict combinations of Lightness and Saturation are 
+those with the lowest importance scores, which appear to be Lightness:light and
+Saturation:pure. The easiest to predict are those with the highest scores,
+excluding primary colors G, R, and B, making Saturation:gray and Hue the most
+influential and thus the easiest to predict.
+
+asiest to predict: Hue and Saturation:gray
+Hardest to predict: Lightness:light and Saturation:pure
+
+The best models would likely perform well by leveraging the factors with 
+the highest importance, which show strong predictive power,
+while the factors with the lowest importance scores would 
+contribute the least to the models' performance.
+
+------------------------------------------------------
+Part iv: Interpretation – iv C) Prediction insights :
+-----------------------------------------------------
+
+I'm going  to use the data sets below since we have all neassary informations 
+that needs to be predct using the Random forest.
+
+
+
+##Generate a grid of 101 
+```{r}
+grid <- expand.grid(
+  R = seq(0, 255, length.out = 101),
+  G = seq(0, 255, length.out = 101),
+  B = 127,
+  Hue = 20,
+  Lightness = unique(dfiiiD$Lightness),
+  Saturation = unique(dfiiiD$Saturation),
+  KEEP.OUT.ATTRS = FALSE, 
+  stringsAsFactors = FALSE
+) %>% 
+  as.data.frame() %>% 
+  tibble::as_tibble()
+
+
+```
+## classification model
+```{r}
+lpredicted <- predict(model_rf, newdata = grid, type = "prob")[,1] 
+lpredicted %>% summary()
+```
+
+```{r}
+##grid$LogitPredicted <- predict(model_rf_regression, 
+   ##                            newdata = grid, type = "response")
+```
+```{r}
+grid$rowIndex <- 1:nrow(grid)
+
+combined_data <- grid %>%
+  inner_join(model_rf$pred, by = "rowIndex")
+```
+
+## That can be predict:
+
+```{r}
+hardest_to_predict <- combined_data %>%
+  filter(event >= 0.45 & event <= 0.55) 
+head(hardest_to_predict)
+```
+
+Can Be bredected:
+
+```{r}
+# Use a color scale with more contrast within the narrow range
+hardest_to_predict %>% 
+ggplot( aes(x = Lightness, y = Saturation, fill = event)) +
+  geom_raster() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
+  labs(title = "can be predicted to Predict (Classification)", x = "Lightness", y = "Saturation") +
+  theme_minimal()
+
+```
+
+
+
+
