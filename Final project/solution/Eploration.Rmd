@@ -8,7 +8,7 @@ output:
     theme: united
     toc: true
     toc_float: true
-    toc_depth: 5
+    toc_depth: 4
     code_folding: hide
     highlight: tango
     number_sections: true
@@ -41,11 +41,12 @@ library(nnet)
 library(xgboost)
 library(broom.mixed)
 library(splines)
+library(here)
 
 ```
 
 ```{r, include=FALSE, echo = FALSE, message = FALSE, warning = FALSE}
-df <- readr::read_csv("paint_project_train_data.csv", col_names = TRUE) |>
+df <- readr::read_csv(here("Final project/paint_project_train_data.csv")) |>
   mutate(logit_response = boot::logit((response - 0)/100))
 ```
 

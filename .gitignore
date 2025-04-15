@@ -3,3 +3,4 @@ Machine Learning.Rproj
 .DS_Store
 .Rhistory
 Midterm/Midterm ML/.RData
+*.csv
