@@ -1,0 +1,867 @@
+---
+title: "Final project part 3"
+author: "Alaa Alghwiri"
+date: "2025-04-21"
+output: 
+   html_document:
+         fig_width: 8
+         fig_height: 8
+---
+
+# 1. Set up the environment
+```{r}
+easypackages::libraries("here", "tidyverse", "viridisLite", "ggdist",
+                        "distributional", "ggridges", "ggpubr", "yardstick",
+                        "rstanarm", "caret")
+```
+
+# 2. Data Preparation
+
+Here, we load the data same as in Part 1 and perform normalization on continuous inputs:
+
+```{r}
+df_orig <- read_csv(here("Final project/Submit/paint_train_split.csv"))
+```
+
+```{r}
+df <- df_orig %>%
+  select(R, G, B, Lightness, Saturation, Hue, outcome) %>%
+  mutate_at(c("R", "G", "B", "Hue"), ~(scale(.) %>% as.vector))
+
+df %>% summary()
+```
+
+
+Also, for validation purposes, we split the data into training and testing sets:
+
+```{r}
+set.seed(0)
+train_id <- sample(1:nrow(df), size = floor(0.8 * nrow(df)))
+df_train <- df %>% slice(train_id)
+df_test <- df %>% slice(-train_id)
+```
+
+# 3. Generalized Linear Models
+
+## 3.1 Fitting Linear Models
+
+We declare and train the 10 models, 7 described in the instructions. Due to the random nature in this process, we set the randomizer seed to 0 for all chunks below:
+
+```{r}
+mod01 <- glm(outcome ~ 1, family = "binomial", data = df_train) # Intercept only
+mod02 <- glm(outcome ~ Lightness + Saturation, family = "binomial", data = df_train) # Categorical variables only
+mod03 <- glm(outcome ~ R + G + B + Hue, family = "binomial", data = df_train) # Continuous variables only
+mod04 <- glm(outcome ~ R + G + B + Hue + Lightness + Saturation, family = "binomial", data = df_train) # All categorical and continuous variables
+mod05 <- glm(outcome ~ (R + G + B + Hue) * (Lightness + Saturation), family = "binomial", data = df_train) # Interaction of categorical inputs with continuous inputs main effects
+mod06 <- glm(outcome ~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = df_train) # Categorical inputs, main effect and all pairwise interactions
+mod07 <- glm(outcome ~ (R + G + B + Hue)^2 * (Lightness + Saturation), family = "binomial", data = df_train) # Interaction of categorical inputs with main effect and all pairwise interactions
+```
+
+And the 3 with non-linear basis functions. We have established in Part 1 that the relationship between Hue (H) and y is probably quadratic. Since we have established RGB data are highly correlated, we include pair-wise interactions between them:
+
+```{r}
+mod08 <- glm(outcome ~ ( (R + G + B)^2 + splines::ns(Hue, 2) ) * (Lightness + Saturation), family = "binomial", data = df_train) # Non linear basis functions
+
+mod09 <- glm(outcome ~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation), family = "binomial", data = df_train)
+
+mod10 <- glm(outcome ~ (R + G + B)^2 + splines::ns(Hue, 2) * (Lightness * Saturation), family = "binomial", data = df_train)
+```
+Here, the model fitting process gives the warning “glm.fit: fitted probabilities numerically 0 or 1 occurred”, which, according to search results, is caused by outlier data with probabilities of 0 or 1.
+
+
+## 3.2 Model Evaluation
+First, we provide a view of common metrics, including the log-likelihood, AIC and BIC.
+
+```{r}
+models <- list(mod01, mod02, mod03, mod04, mod05, mod06, mod07, mod08, mod09, mod10)
+metrics <- models %>%
+  purrr::map_df(broom::glance) %>%
+  mutate(model_name = 1:10)
+```
+
+For log likelihood:
+
+```{r}
+metrics %>%
+  ggplot(mapping = aes(x = model_name, y = logLik)) +
+  geom_line() + geom_point(size = 2) +
+  scale_x_continuous(breaks = round(seq(1, 10, by = 1), 1))
+
+```
+It shows that all models have great accuracy except model 07 and 08. However, this view is clearly non-revealing. Thus, we also inspect the AIC values:
+
+```{r}
+metrics %>%
+  ggplot(mapping = aes(x = model_name, y = AIC)) +
+  geom_line() + geom_point(size = 2) +
+  scale_x_continuous(breaks = round(seq(1, 10, by = 1), 1))
+```
+More importantly, we also include BIC in determining the best model since it is a training set only metric, and more conservative than AIC:
+
+
+```{r}
+metrics %>%
+  ggplot(mapping = aes(x = model_name, y = BIC)) +
+  geom_line() + geom_point(size = 2) +
+  scale_x_continuous(breaks = round(seq(1, 10, by = 1), 1))
+```
+We also show the AIC and BIC values since the minimal value is hard to determine from the figure
+
+```{r}
+metrics[order(metrics$AIC),] %>% select("model_name", "AIC")
+```
+```{r}
+metrics[order(metrics$BIC),] %>% select("model_name", "BIC")
+```
+
+Here, the log-likelihood shows that all models except model 06 and 07 have a (relatively) high log-likelihood. The AIC and BIC values both suggest that model 9 is the best. owever, such results does not mean much without testing on non-training set data. Hence, we make predictions on the test set:
+
+
+
+```{r}
+pred <- function(mod, test_data, y)
+{
+  pred_test <- data.frame(prob = predict(mod, newdata = test_data, type="response")) %>%
+    mutate(class = ifelse(prob > 0.5, 'event', 'non_event'),
+           class = factor(class, levels = c('event', 'non_event'))) %>%
+    dplyr::select(all_of("class")) %>% pull()
+  
+  y_test <- test_data %>% 
+    mutate(outcome = ifelse(outcome == 1, 'event', 'non_event'),
+           outcome = factor(outcome, levels = c('event', 'non_event'))) %>%
+    dplyr::select(all_of(y)) %>% pull()
+  
+  test_metrics <- tibble::tibble(
+    acc = accuracy_vec(y_test, pred_test)
+  )
+  test_metrics
+}
+
+results <- 
+  purrr::map_df(models,
+                pred,
+                test_data = df_test,
+                y = "outcome") %>%
+  mutate(model_name = 1:10)
+```
+
+```{r}
+results %>%
+  ggplot(mapping = aes(x = model_name, y = acc)) +
+  geom_line() + geom_point(size = 2) +
+  scale_x_continuous(breaks = round(seq(1, 10, by = 1), 1))
+```
+
+Here, we show that the performances of the models varies on one train-test split, therefore, we select model 09, model 02 and model 04 as the 3 best models, as they present the top models selected by BIC and have a reseaonably well performance on the test set. We also visualize the coefficient summaries for the top 3 models.
+
+
+```{r}
+coefplot::multiplot(mod09, mod06, mod02)
+```
+
+We provide some simple insights of the results:
+
+For simpler variables shared by the 3 models, the coefficients identified by the 3 models are mostly close. However, more complex models (mod09) give a larger confidence interval.
+
+For more complex variables, the variables are often not statistically significant. However, the coefficients identified by the 3 models differ.
+
+By analyzing the coefficients, we conclude that the RGB data and their interaction with the Hue input are very important to the model. The interaction between 2 RGB data (e.g. G and B) is also influential. Categorical data, on the other hand, is much less important.
+
+# 4. Bayesian Generalized Linear Models
+
+In this section, we create Bayesian Linear Models with model 09 and model 02.
+
+## 4.1 Fitting Bayesian Linear models
+
+We select model 09 and model 06 for the Bayesian linear models. Both are selected for its low complexity and good performance metrics (BIC), indicating a good balance between the variance and bias. The design matrix and a reasonably strong prior (𝜏𝛽=1) is defined as below. For model 09:
+
+
+```{r}
+set.seed(0)
+X09 <- model.matrix(outcome ~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation), family = "binomial", data = df)
+
+info_09 <- list(
+  yobs = df$outcome,
+  design_matrix = X09,
+  mu_beta = 0,
+  tau_beta = 4
+)
+```
+
+For model 06:
+
+```{r}
+set.seed(0)
+X06 <- model.matrix(outcome ~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = df)
+
+info_06 <- list(
+  yobs = df$outcome,
+  design_matrix = X06,
+  mu_beta = 0,
+  tau_beta = 4
+)
+```
+
+The following function calculates the log posterior:
+
+```{r}
+set.seed(0)
+logistic_logpost <- function(unknowns, my_info)
+{
+  # extract the design matrix and assign to X
+  X <- my_info$design_matrix
+  
+  # calculate the linear predictor
+  eta <- as.vector(X %*% matrix(unknowns))
+  
+  # calculate the event probability
+  mu <- boot::inv.logit(eta)
+  
+  # evaluate the log-likelihood
+  log_lik <- sum(dbinom(x = my_info$yobs,
+                        size = 1,
+                        prob = mu,
+                        log = TRUE))
+  
+  # evaluate the log-prior
+  log_prior <- sum(dnorm(x = unknowns,
+                         mean = my_info$mu_beta,
+                         sd = my_info$tau_beta,
+                         log = TRUE))
+  
+  # sum together
+  log_lik + log_prior
+}
+```
+
+And a function for the Laplace approximation which returns the object consisting of the posterior mode, posterior covariance matrix, and the log-evidence:
+
+```{r}
+set.seed(0)
+my_laplace <- function(start_guess, logpost_func, ...)
+{
+  # code adapted from the `LearnBayes`` function `laplace()`
+  fit <- optim(start_guess,
+               logpost_func,
+               gr = NULL,
+               ...,
+               method = "BFGS",
+               hessian = TRUE,
+               control = list(fnscale = -1, maxit = 5001))
+  
+  mode <- fit$par
+  post_var_matrix <- -solve(fit$hessian)
+  p <- length(mode)
+  int <- p/2 * log(2 * pi) + 0.5 * log(det(post_var_matrix)) + logpost_func(mode, ...)
+  # package all of the results into a list
+  list(mode = mode,
+       var_matrix = post_var_matrix,
+       log_evidence = int,
+       converge = ifelse(fit$convergence == 0,
+                         "YES", 
+                         "NO"),
+       iter_counts = as.numeric(fit$counts[1]))
+}
+```
+
+Here, We execute the Laplace approximation for the 2 models with an initial guess of 0:
+
+```{r}
+set.seed(0)
+laplace_09 <- my_laplace(rep(0, ncol(X09)), logistic_logpost, info_09)
+laplace_06 <- my_laplace(rep(0, ncol(X06)), logistic_logpost, info_06)
+
+```
+
+To test whether the Bayesian Linear Models have converged:
+
+```{r}
+laplace_09$converge
+laplace_06$converge
+```
+
+## 4.2 Model Evaluation
+To identify the best model, we use the log evidence as the metric:
+
+```{r}
+exp(laplace_09$log_evidence - laplace_06$log_evidence)
+```
+Thus, we show that model 09 is the best model.
+
+We also use the following function to visualize the coefficient posteriors.
+
+```{r}
+set.seed(0)
+viz_post_coefs <- function(post_means, post_sds, xnames)
+{
+  tibble::tibble(
+    mu = post_means,
+    sd = post_sds,
+    x = xnames
+  ) %>% 
+    mutate(x = factor(x, levels = xnames)) %>% 
+    ggplot(mapping = aes(x = x)) +
+    geom_hline(yintercept = 0, color = 'grey', linetype = 'dashed') +
+    geom_point(mapping = aes(y = mu)) +
+    geom_linerange(mapping = aes(ymin = mu - 2 * sd,
+                                 ymax = mu + 2 * sd,
+                                 group = x)) +
+    labs(x = 'feature', y = 'coefficient value') +
+    coord_flip() +
+    theme_bw()
+}
+```
+
+
+
+For model 09:
+
+```{r, fig.width=8, fig.height=10}
+post_means <- laplace_09$mode[1:ncol(X09)]
+post_sd <- sqrt(diag(laplace_09$var_matrix)[1:ncol(X09)])
+viz_post_coefs(post_means, post_sd, colnames(X09))
+```
+
+## 4.3 Best model and its Uncertainty
+For the uncertainty on the unknown likelihood noise 𝜎, we first provide the posterior standard deviations for model 09:
+
+For model 09:
+
+```{r}
+sqrt(diag(laplace_09$var_matrix))
+```
+
+
+As shown above, the standard deviations are low. To further study the uncertainty on the unknown likelihood noise 𝜎, we would need to generate posterior samples to study the posterior distribution on different features. The samples are generated with the following function:
+
+```{r}
+generate_glm_post_samples <- function(mvn_result, num_samples)
+{
+  # specify the number of unknown beta parameters
+  length_beta <- length(mvn_result$mode)
+  
+  # generate the random samples
+  beta_samples <- MASS::mvrnorm(n = num_samples,
+                                mu = mvn_result$mode,
+                                Sigma = mvn_result$var_matrix)
+
+  # change the data type and name
+  beta_samples %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    purrr::set_names(sprintf("beta_%02d", (1:length_beta) - 1))
+}
+```
+
+For the samples for model 05:
+
+```{r}
+post_samples_09 <- generate_glm_post_samples(laplace_09, 1000)
+```
+
+Same as in Part 1, we transform the samples into a long format for visualization purposes:
+
+```{r}
+set.seed(0)
+post_samples_09_long <- post_samples_09 %>%
+  pivot_longer(colnames(post_samples_09)) %>%
+  as.data.frame()
+```
+
+The posterior histograms for different samples are shown below:
+
+```{r, fig.width=8, fig.height=10}
+post_samples_09_long %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 20) +
+  facet_wrap(~ name, scale = "free_x")
+
+```
+
+From the distributions, we show that the coefficient predictions distribution resembles a Gaussian distribution.
+
+# 5. Linear Predictions
+Here, we use the 2 Linear Models (mod05 and mod08) to make predictions, we first prepare the grid for testing. To avoid a visualization grid too large, we make $ grids to study the output on R, G, B and Hue separately:
+
+```{r}
+set.seed(0)
+viz_grid_R <- expand.grid(R = seq(min(df$R), max(df$R), length.out = 101),
+                          G = mean(df$G),
+                          B = mean(df$B),
+                          Hue = mean(df$Hue),
+                          Lightness = unique(df$Lightness),
+                          Saturation = unique(df$Saturation),
+                          KEEP.OUT.ATTRS = FALSE,
+                          stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+```{r}
+set.seed(0)
+viz_grid_G <- expand.grid(R = mean(df$R),
+                          G = seq(min(df$G), max(df$G), length.out = 101),
+                          B = mean(df$B),
+                          Hue = mean(df$Hue),
+                          Lightness = unique(df$Lightness),
+                          Saturation = unique(df$Saturation),
+                          KEEP.OUT.ATTRS = FALSE,
+                          stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+```{r}
+set.seed(0)
+viz_grid_B <- expand.grid(R = mean(df$R),
+                          G = mean(df$G),
+                          B = seq(min(df$B), max(df$B), length.out = 101),
+                          Hue = mean(df$Hue),
+                          Lightness = unique(df$Lightness),
+                          Saturation = unique(df$Saturation),
+                          KEEP.OUT.ATTRS = FALSE,
+                          stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+```{r}
+set.seed(0)
+viz_grid_H <- expand.grid(R = mean(df$R),
+                          G = mean(df$G),
+                          B = mean(df$B),
+                          Hue = seq(min(df$Hue), max(df$Hue), length.out = 101),
+                          Lightness = unique(df$Lightness),
+                          Saturation = unique(df$Saturation),
+                          KEEP.OUT.ATTRS = FALSE,
+                          stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+In this section, we make predictions with model 09 and model 02. First, we define the following functions:
+
+Using matrix math to calculate the posterior samples of the linear predictor
+
+Summarizing the posterior predicted event probability with the posterior mean, as well as the 0.05 and 0.95 quantiles.
+
+```{r}
+set.seed(0)
+post_logistic_pred_samples <- function(Xnew, Bmat)
+{
+  # calculate the linear predictor at all prediction points and posterior samples
+  eta_mat <- Xnew %*% t(Bmat)
+  # calculate the event probability
+  mu_mat <- boot::inv.logit(eta_mat)
+  # book keeping
+  list(eta_mat = eta_mat, mu_mat = mu_mat)
+}
+```
+
+```{r}
+set.seed(0)
+summarize_logistic_pred_from_laplace <- function(mvn_result, Xtest, num_samples)
+{
+  # generate posterior samples of the beta parameters
+  betas <- generate_glm_post_samples(mvn_result, num_samples)
+  
+  # data type conversion
+  betas <- as.matrix(betas)
+  
+  # make posterior predictions on the test set
+  pred_test <- post_logistic_pred_samples(Xtest, betas)
+  
+  # calculate summary statistics on the posterior predicted probability
+  # summarize over the posterior samples
+  
+  # posterior mean, should you summarize along rows (rowMeans) or 
+  # summarize down columns (colMeans) ???
+  mu_avg <- rowMeans(pred_test$mu_mat)
+  
+  # posterior quantiles
+  mu_q05 <- apply(pred_test$mu_mat, 1, stats::quantile, probs = 0.05)
+  mu_q95 <- apply(pred_test$mu_mat, 1, stats::quantile, probs = 0.95)
+  
+  # book keeping
+  tibble::tibble(
+    mu_avg = mu_avg,
+    mu_q05 = mu_q05,
+    mu_q95 = mu_q95
+  ) %>% 
+    tibble::rowid_to_column("pred_id")
+}
+```
+
+Here, we make predictions with model 09. However, because we introduce the spline function for “Hue”, we cannot make predictions with only 1 Hue value (which is the case for viz_grid_R, viz_grid_G and viz_grid_B). Therefore, we only include the predictive trend of different values of Hue under different categorical inputs:
+
+```{r}
+set.seed(0)
+Xviz_09_H <- model.matrix(~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation), family = "binomial", data = viz_grid_H)
+post_pred_summary_09_H <- summarize_logistic_pred_from_laplace(laplace_09, Xviz_09_H, 1000)
+```
+
+The visualization for the predictive trend is shown below:
+
+```{r, fig.height= 10}
+set.seed(0)
+post_pred_summary_09_H %>% 
+  left_join(viz_grid_H %>% tibble::rowid_to_column('pred_id'),
+            by = 'pred_id') %>% 
+  ggplot(mapping = aes(x = Hue)) +
+  geom_ribbon(mapping = aes(ymin = mu_q05, ymax = mu_q95), alpha = 0.25) +
+  geom_line(mapping = aes(y = mu_avg), linewidth = 1.15, color = "red") +
+  facet_wrap( ~ Lightness * Saturation, scales = "free_x") +
+  labs(y = "event probability") +
+  theme_bw()
+
+```
+
+For model 06, we include the trend for R, G, B and Hue:
+
+```{r}
+set.seed(0)
+Xviz_06_R <- model.matrix(~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = viz_grid_R)
+Xviz_06_G <- model.matrix(~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = viz_grid_G)
+Xviz_06_B <- model.matrix(~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = viz_grid_B)
+Xviz_06_H <- model.matrix(~ (R + G + B + Hue)^2 + Lightness + Saturation, family = "binomial", data = viz_grid_H)
+```
+
+
+```{r}
+post_pred_summary_06_R <- summarize_logistic_pred_from_laplace(laplace_06, Xviz_06_R, 1000)
+post_pred_summary_06_G <- summarize_logistic_pred_from_laplace(laplace_06, Xviz_06_G, 1000)
+post_pred_summary_06_B <- summarize_logistic_pred_from_laplace(laplace_06, Xviz_06_B, 1000)
+post_pred_summary_06_H <- summarize_logistic_pred_from_laplace(laplace_06, Xviz_06_H, 1000)
+```
+
+The predictive trends are shown below:
+
+For R:
+
+```{r, fig.height= 10}
+set.seed(0)
+post_pred_summary_06_R %>% 
+  left_join(viz_grid_R %>% tibble::rowid_to_column('pred_id'),
+            by = 'pred_id') %>% 
+  ggplot(mapping = aes(x = R)) +
+  geom_ribbon(mapping = aes(ymin = mu_q05, ymax = mu_q95), alpha = 0.25) +
+  geom_line(mapping = aes(y = mu_avg), linewidth = 1.15, color = "red") +
+  facet_wrap( ~ Lightness * Saturation) +
+  labs(y = "event probability", scales = "free_y") +
+  theme_bw()
+```
+
+For G:
+
+```{r, fig.height= 10}
+set.seed(0)
+post_pred_summary_06_G %>% 
+  left_join(viz_grid_G %>% tibble::rowid_to_column('pred_id'),
+            by = 'pred_id') %>% 
+  ggplot(mapping = aes(x = G)) +
+  geom_ribbon(mapping = aes(ymin = mu_q05, ymax = mu_q95), alpha = 0.25) +
+  geom_line(mapping = aes(y = mu_avg), linewidth = 1.15, color = "red") +
+  facet_wrap( ~ Lightness * Saturation) +
+  labs(y = "event probability", scales = "free_y") +
+  theme_bw()
+```
+
+For B:
+
+```{r, fig.height= 10}
+set.seed(0)
+post_pred_summary_06_B %>% 
+  left_join(viz_grid_B %>% tibble::rowid_to_column('pred_id'),
+            by = 'pred_id') %>% 
+  ggplot(mapping = aes(x = B)) +
+  geom_ribbon(mapping = aes(ymin = mu_q05, ymax = mu_q95), alpha = 0.25) +
+  geom_line(mapping = aes(y = mu_avg), linewidth = 1.15, color = "red") +
+  facet_wrap( ~ Lightness * Saturation) +
+  labs(y = "event probability", scales = "free_y") +
+  theme_bw()
+```
+
+For Hue:
+
+```{r, fig.height= 10}
+set.seed(0)
+post_pred_summary_06_H %>% 
+  left_join(viz_grid_H %>% tibble::rowid_to_column('pred_id'),
+            by = 'pred_id') %>% 
+  ggplot(mapping = aes(x = Hue)) +
+  geom_ribbon(mapping = aes(ymin = mu_q05, ymax = mu_q95), alpha = 0.25) +
+  geom_line(mapping = aes(y = mu_avg), linewidth = 1.15, color = "red") +
+  facet_wrap( ~ Lightness * Saturation) +
+  labs(y = "event probability", scales = "free_y") +
+  theme_bw()
+```
+
+# 6. Train/Tune with Resampling
+
+## 6.1 Model Declaration
+
+To train and tune more complex model with resampling, we first specify the resampling scheme to be 10 fold with 3 repeats. The primary performance metric will be “Accuracy”. We use caret to train and tune the models. Here, we prepare the data same as in Part 1 and perform normalization on continuous inputs:
+
+```{r}
+df_orig <- read_csv(here("Final project/paint_project_train_data.csv"))
+
+df_caret <- df_orig %>%
+  mutate(outcome = ifelse(outcome == 1, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c('event', 'non_event'))) %>% 
+  select(R, G, B, Lightness, Saturation, Hue, outcome) %>%
+  mutate_at(c("R", "G", "B", "Hue"), ~(scale(.) %>% as.vector))
+
+df_caret %>% summary()
+```
+
+```{r}
+set.seed(0)
+my_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+my_metric <- 'Accuracy'
+```
+
+Here, we define the models to be trained and tuned. For the linear models, it is defined as below, we include the suppress warnings code to ignore the warning message discussed in Section 3:
+
+```{r}
+set.seed(0)
+glm_grid = expand.grid(parameter=c(0.001, 0.01, 0.1, 1,10,100, 1000))
+
+suppressWarnings({
+
+glm_04 <- train(outcome ~ R + G + B + Hue + Lightness + Saturation,
+                data = df_caret,
+                method = "glm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl,
+                tuneGrid = glm_grid) # All categorical and continuous variables
+
+glm_05 <- train(outcome ~ (R + G + B + Hue) * (Lightness + Saturation),
+                data = df_caret,
+                method = "glm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl,
+                tuneGrid = glm_grid) # Interaction of categorical inputs with continuous inputs main effects
+
+glm_06 <- train(outcome ~ (R + G + B + Hue)^2 + Lightness + Saturation,
+                data = df_caret,
+                method = "glm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl,
+                tuneGrid = glm_grid) # Categorical inputs, main effect and all pairwise interactions
+
+glm_09 <- train(outcome ~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation),
+                data = df_caret,
+                method = "glm",
+                metric = my_metric,
+                preProcess = c("center", "scale"),
+                trControl = my_ctrl,
+                tuneGrid = glm_grid)
+
+})
+
+```
+
+For Elastic net models, we use the provided functions for training and tuning:
+
+```{r}
+set.seed(0)
+enet_06_default <- train(outcome ~ (R + G + B + Hue)^2 + Lightness + Saturation,
+                         data = df_caret,
+                         method = "glmnet",
+                         metric = my_metric,
+                         preProcess = c("center", "scale"),
+                         trControl = my_ctrl)
+enet_06_default
+```
+
+```{r}
+set.seed(0)
+enet_09_default <- train(outcome ~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation),
+                         data = df_caret,
+                         method = "glmnet",
+                         metric = my_metric,
+                         preProcess = c("center", "scale"),
+                         trControl = my_ctrl)
+enet_09_default
+```
+
+
+From the results, we define the tuning grid(s):
+
+```{r}
+set.seed(0)
+enet_06_grid <- expand.grid(alpha = seq(0.1, 1.0, length.out = 9),
+                            lambda = exp(seq(log(min(enet_06_default$results$lambda)),
+                            log(max(enet_06_default$results$lambda)),
+                            length.out = 25)))
+
+
+enet_09_grid <- expand.grid(alpha = seq(0.1, 1.0, length.out = 9),
+                            lambda = exp(seq(log(min(enet_09_default$results$lambda)),
+                            log(max(enet_09_default$results$lambda)),
+                            length.out = 25)))
+```
+
+Here, we tune the Elastic Net models. For Enet_06:
+
+```{r}
+set.seed(0)
+enet_06_tune <- train(outcome ~ (R + G + B + Hue)^2 + Lightness + Saturation,
+                      data = df_caret,
+                      method = "glmnet",
+                      metric = my_metric,
+                      preProcess = c("center", "scale"),
+                      trControl = my_ctrl,
+                      tuneGrid = enet_06_grid)
+enet_06_tune %>% plot(xTrans = log)
+```
+
+
+For Enet_09:
+
+```{r}
+set.seed(0)
+enet_09_tune <- train(outcome ~ (R + G + B)^2 * splines::ns(Hue, 2) + (Lightness + Saturation),
+                      data = df_caret,
+                      method = "glmnet",
+                      metric = my_metric,
+                      preProcess = c("center", "scale"),
+                      trControl = my_ctrl,
+                      tuneGrid = enet_09_grid)
+enet_09_tune %>% plot(xTrans = log)
+```
+
+For the Neural Network and the tuning process:
+
+```{r}
+set.seed(0)
+nnet_grid <- expand.grid(size = seq(1, 5, 1),
+                         decay = seq(0.1, 1, 10))
+
+nnet_tune <- train(outcome ~ .,
+                   data = df_caret,
+                   method = 'nnet',
+                   metric = my_metric,
+                   preProcess = c('center', 'scale'),
+                   trControl = my_ctrl,
+                   trace = FALSE,
+                   tuneGrid = nnet_grid)
+nnet_tune %>% plot(xTrans = log)
+```
+
+For the Random Forest: and the tuning process:
+
+```{r}
+set.seed(0)
+rf_grid <- expand.grid(mtry = seq(2, 8, by = 1))
+
+rf_tune <- train(outcome ~ .,
+                 data = df_caret,
+                 method = 'rf',
+                 metric = my_metric,
+                 preProcess = c('center', 'scale'),
+                 trControl = my_ctrl,
+                 trace = FALSE,
+                 importance = TRUE,
+                 tuneGrid = rf_grid,
+                 linout = TRUE)
+plot(rf_tune)
+```
+
+For the Gradient boosted tree and the tuning process:
+
+```{r}
+set.seed(0)
+xgb_grid <- expand.grid(nrounds = c(50, 100, 150, 200),
+                        max_depth = c(2, 3, 5, 10),
+                        eta = c(0.01, 0.1, 0.3),
+                        gamma = c(0),
+                        colsample_bytree = 1,
+                        min_child_weight = 1,
+                        subsample = 1
+                        )
+
+xgb_tune <- train(outcome ~ .,
+                  data = df_caret,
+                  method = 'xgbTree',
+                  metric = my_metric,
+                  trControl = my_ctrl,
+                  preProcess = c("center", "scale"),
+                  verbosity = 0,
+                  nthread = 1,
+                  tuneGrid = xgb_grid)
+xgb_tune %>% plot(xTrans = log)
+```
+
+Here, we also include (1) Support Vector Machine (SVM) and (2) K-Nearest Neighbors models:
+
+For SVM:
+
+```{r}
+set.seed(0)
+svm_default <- train(outcome ~ .,
+                     data = df_caret,
+                     method = "svmRadial",
+                     metric = my_metric,
+                     preProcess = c("center", "scale"),
+                     trControl = my_ctrl)
+svm_default
+```
+
+The tuning process:
+
+```{r}
+set.seed(0)
+svm_grid <- expand.grid(sigma = c(svm_default$bestTune$sigma),
+                        C = c(0.25, 0.5, 0.75, 1))
+
+svm_tune <- train(outcome ~ .,
+                  data = df_caret,
+                  method = "svmRadial",
+                  metric = my_metric,
+                  preProcess = c("center", "scale"),
+                  trControl = my_ctrl,
+                  tuneGrid = svm_grid)
+```
+
+For KNN and the tuning process:
+
+```{r}
+set.seed(0)
+knn_grid <- expand.grid(k = seq(1, 10, by = 1))
+
+knn_tune <- train(outcome ~ .,
+                  data = df_caret,
+                  method = "knn",
+                  metric = my_metric,
+                  preProcess = c("center", "scale"),
+                  trControl = my_ctrl,
+                  tuneGrid = knn_grid)
+```
+
+## 6.2 Model Comparisan
+Here, we compare the models we have trained and tuned:
+
+```{r}
+set.seed(0)
+caret_acc_compare <- resamples(list(glm_04 = glm_04,
+                                    glm_05 = glm_05,
+                                    glm_06 = glm_06,
+                                    glm_09 = glm_09,
+                                    ENET_06 = enet_06_tune,
+                                    ENET_09 = enet_09_tune,
+                                    NNET = nnet_tune,
+                                    RF = rf_tune,
+                                    XGB = xgb_tune,
+                                    SVM = svm_tune,
+                                    KNN = knn_tune))
+```
+
+```{r}
+dotplot(caret_acc_compare, metric = 'Accuracy')
+```
+
+Thus, we show that the Gradient Boost Tree is the best model. We save the identified best model as “class_best.rds”:
+
+```{r}
+xgb_tune %>%  readr::write_rds(here("Final project/Submit/class_best.rds"))
+```
+

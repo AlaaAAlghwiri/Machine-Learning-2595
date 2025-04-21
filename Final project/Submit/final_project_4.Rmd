@@ -1,0 +1,262 @@
+---
+title: "Final project part 4"
+author: "Alaa Alghwiri"
+output: 
+   html_document:
+         fig_width: 8
+         fig_height: 8
+---
+
+# 1. Set up the environment
+```{r}
+easypackages::libraries("here", "tidyverse", "viridisLite", "ggdist",
+                        "distributional", "ggridges", "ggpubr", "yardstick",
+                        "rstanarm", "caret")
+```
+
+# 2. Data Preparation and Loading Models
+
+We load the identified best model for Regression tasks and Classification tasks:
+
+```{r}
+reg_best <- readr::read_rds(here("Final project/Submit/reg_best.rds"))
+class_best <- readr::read_rds(here("Final project/Submit/class_best.rds"))
+```
+
+# 3. Input Importance
+To test the input importance of both models, we provide the importance of the variables of the models with the varImp function:
+
+For the Regression model (Linear Model 08):
+
+```{r}
+plot(varImp(reg_best), top = 20)
+```
+For the classification model (XGBoost Tree):
+
+```{r}
+plot(varImp(class_best))
+```
+
+As we observe, the input importance of both models are very different. For the regression model, the most important variables are Green and the interaction of Red & Green and the Lightness of the paint. This is consistent with our hypothesis in Part 1 that the interactions of 2 of the RGB data will be an important factor. For the classification model, the importance is placed on the HSL data (more specifically, Hue and Saturation for gray, as gray saturation can cause linear separability). RGB data are also important, but less than HSL.
+
+We can still identify some similarly important inputs like Green, but the models show a very distinct performance.
+
+For the regression task, while RGB inputs are given high importance, we cannot say they dominate the HSL inputs since the formula of the linear model are constructed with the interactions of RGB and HSL. However, for the HSL data, Lightness is significantly more helpful than Hue and Saturation, as Saturation-related inputs are given low importance. For the classification task, RGB and Hue, Saturation data are dominant, and Lightness data are not very helpful (as it is given low importance).
+
+Overall, we believe that the input is enough to identify popular paints.
+
+# 4. Input Insights
+In this section, we use the hold-out test set we created in Part 1 to test the regression and classification models. Here, we load the data:
+
+```{r}
+df_test_orig <- readr::read_csv(here("Final project/Submit/paint_test_split.csv"))
+
+```
+
+```{r}
+df_reg_caret <- df_test_orig %>%
+  mutate(y = boot::logit( (response - 0) / (100 - 0) )) %>% 
+  select(R, G, B, Lightness, Saturation, Hue, y) %>%
+  mutate_at(c("R", "G", "B", "Hue"), ~(scale(.) %>% as.vector))
+
+df_class_caret <- df_test_orig %>%
+  mutate(outcome = ifelse(outcome == 1, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c('event', 'non_event'))) %>% 
+  select(R, G, B, Lightness, Saturation, Hue, outcome) %>%
+  mutate_at(c("R", "G", "B", "Hue"), ~(scale(.) %>% as.vector))
+```
+
+
+For the regression task, we predict on the test set:
+
+```{r}
+pred_reg <- df_reg_caret %>%
+    mutate(pred = predict(reg_best, newdata = df_reg_caret))
+```
+
+Here, to demonstrate which combination of Lightness and Saturation is the hardest/easiest to predict, we provide the RMSE and R Squared on different combinations:
+
+```{r}
+pred_reg %>%
+  group_by(Lightness, Saturation) %>%
+  rmse(estimate = pred, truth = y) %>% rename(RMSE = .estimate) %>%
+  ggplot(mapping = aes(x = Saturation, y = Lightness, fill = RMSE)) +
+  geom_tile() +
+  geom_text(mapping = aes(label = round(RMSE, digits = 2)), color = "white") +
+  scale_fill_viridis_c() +
+  coord_fixed(ratio = 1)
+```
+```{r}
+pred_reg %>%
+  group_by(Lightness, Saturation) %>%
+  rsq(estimate = pred, truth = y) %>% rename(R_Squared = .estimate) %>%
+  ggplot(mapping = aes(x = Saturation, y = Lightness, fill = R_Squared)) +
+  geom_tile() +
+  geom_text(mapping = aes(label = round(R_Squared, digits = 2)), color = "white") +
+  scale_fill_viridis_c() +
+  coord_fixed(ratio = 1)
+```
+
+
+Thus, we show that for regression tasks, the hardest combination to predict is “Neutral & Deep” (“Shaded & Dark” does not show a large difference in RMSE); the easiest to predict is “Gray & Light”.
+
+Similarly, for classification tasks, we test its accuracy:
+
+```{r}
+pred_class <- df_class_caret %>%
+    mutate(pred = predict(class_best, newdata = df_reg_caret))
+```
+
+```{r}
+pred_class %>%
+  group_by(Lightness, Saturation) %>%
+  accuracy(estimate = pred, truth = outcome) %>% rename(ACC = .estimate) %>%
+  ggplot(mapping = aes(x = Saturation, y = Lightness, fill = ACC)) +
+  geom_tile() +
+  geom_text(mapping = aes(label = round(ACC, digits = 2)), color = "white") +
+  scale_fill_viridis_c() +
+  coord_fixed(ratio = 1)
+```
+
+Thus, we show that for classification tasks, the hardest combination to predict is “Pure & Soft”; the easiest to predict is “Bright & Deep”.
+
+# 5. Prediction Insights
+In this section, we visualize the predictive trends of both models as a surface.
+
+## 5.1 Regression Model
+
+For the regression task, we first define the visualization grid for the hardest/easiest combination of categorical inputs. Due to the high correlation between R, G and B, we use R and Hue as primary and secondary continuous inputs:
+
+```{r}
+set.seed(0)
+viz_grid_reg_hard <- expand.grid(R = seq(min(df_reg_caret$R), max(df_reg_caret$R), length.out = 101),
+                                 G = mean(df_reg_caret$G),
+                                 B = mean(df_reg_caret$B),
+                                 Hue = seq(min(df_reg_caret$Hue), max(df_reg_caret$Hue), length.out = 101),
+                                 Lightness = c("deep"),
+                                 Saturation = c("neutral"),
+                                 KEEP.OUT.ATTRS = FALSE,
+                                 stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_reg_easy <- expand.grid(R = seq(min(df_reg_caret$R), max(df_reg_caret$R), length.out = 101),
+                                 G = mean(df_reg_caret$G),
+                                 B = mean(df_reg_caret$B),
+                                 Hue = seq(min(df_reg_caret$Hue), max(df_reg_caret$Hue), length.out = 101),
+                                 Lightness = c("light"),
+                                 Saturation = c("gray"),
+                                 KEEP.OUT.ATTRS = FALSE,
+                                 stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+Here, we make the predictions on the hardest combination:
+
+```{r}
+set.seed(0)
+pred_reg_hard <- viz_grid_reg_hard %>% mutate(pred = predict(reg_best, viz_grid_reg_hard))
+
+pred_reg_hard %>%
+  ggplot(mapping = aes(x = R, y = Hue)) +
+  geom_raster(mapping = aes(fill = pred)) +
+  scale_fill_viridis_c()
+```
+As shown above, the distinction between different input values are low, and Hue value hardly shows any difference in the prediction. Further, we make the predictions on the easiest combination:
+
+```{r}
+set.seed(0)
+pred_reg_easy <- viz_grid_reg_easy %>% mutate(pred = predict(reg_best, viz_grid_reg_easy))
+
+pred_reg_easy %>%
+  ggplot(mapping = aes(x = R, y = Hue)) +
+  geom_raster(mapping = aes(fill = pred)) +
+  scale_fill_viridis_c()
+```
+
+
+Compared to the hardest input, two surface plots are very different. The distinctions of high/low values in the easiest combination is high for both R and Hue.
+
+## 5.2 Classification Model
+
+Similar to Section 5.1, for the classification task, we define the visualization grid for the hardest/easiest combination of categorical inputs:
+
+```{r}
+set.seed(0)
+viz_grid_class_hard <- expand.grid(R = seq(min(df_class_caret$R), max(df_class_caret$R), length.out = 101),
+                                   G = mean(df_class_caret$G),
+                                   B = mean(df_class_caret$B),
+                                   Hue = seq(min(df_class_caret$Hue), max(df_class_caret$Hue), length.out = 101),
+                                   Lightness = c("soft"),
+                                   Saturation = c("pure"),
+                                   KEEP.OUT.ATTRS = FALSE,
+                                   stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_class_easy <- expand.grid(R = seq(min(df_class_caret$R), max(df_class_caret$R), length.out = 101),
+                                   G = mean(df_class_caret$G),
+                                   B = mean(df_class_caret$B),
+                                   Hue = seq(min(df_class_caret$Hue), max(df_class_caret$Hue), length.out = 101),
+                                   Lightness = c("deep"),
+                                   Saturation = c("bright"),
+                                   KEEP.OUT.ATTRS = FALSE,
+                                   stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+
+Here, we make the predictions on the hardest combination and show the probability of the event:
+
+```{r}
+set.seed(0)
+pred_class_hard <- viz_grid_class_hard %>% mutate(pred = predict(class_best, viz_grid_class_hard, type = "prob"))
+
+pred_class_hard %>%
+  ggplot(mapping = aes(x = R, y = Hue)) +
+  geom_raster(mapping = aes(fill = pred$event)) +
+  scale_fill_viridis_c()
+```
+
+And for the easiest combination:
+
+```{r}
+set.seed(0)
+pred_class_easy <- viz_grid_class_easy %>% mutate(pred = predict(class_best, viz_grid_class_easy, type = "prob"))
+```
+
+```{r}
+pred_class_easy %>%
+  ggplot(mapping = aes(x = R, y = Hue)) +
+  geom_raster(mapping = aes(fill = pred$event)) +
+  scale_fill_viridis_c()
+```
+
+Though we do not see significant difference in the predictive trend surface, it is most likely a result for the low(er) importance of the categorical inputs on the classification model (as discussed in Section 3). This could also indicate an intrinsic difference in outcomes of different combinations related to the data.
+
+# 6. Holdout Test
+Here, we provide the holdout test results of the 2 models:
+
+```{r}
+df_holdout <- readr::read_csv(here("Final project/paint_project_holdout_data.csv"))
+
+df_holdout <- df_holdout %>%
+  mutate_at(c("R", "G", "B", "Hue"), ~(scale(.) %>% as.vector))
+```
+
+```{r}
+my_preds <- tibble::tibble(
+  y = predict(reg_best, newdata = df_holdout),
+  outcome = predict(class_best, newdata = df_holdout)
+) %>% 
+  bind_cols(
+    predict(class_best, newdata = df_holdout, type = 'prob') %>% 
+      select(probability = event)
+  ) %>% 
+  tibble::rowid_to_column('id')
+
+my_preds %>% head()
+```
+
+```{r}
+my_preds %>% readr::write_csv(here("Final project/Submit/holdout_result.csv"))
+```
+
+

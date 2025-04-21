@@ -1,0 +1,286 @@
+---
+title: "PPG Paint Colors: Final Project - Part 1"
+author: "Alaa Alghwiri"
+output: 
+   html_document:
+         fig_width: 8
+         fig_height: 10
+---
+
+# 1. Set up the environment
+
+```{r}
+easypackages::libraries("here", "tidyverse", "viridisLite", "ggdist",
+                        "distributional", "ggridges", "ggpubr")
+```
+# 2. Data exploration
+
+```{r}
+df_orig <- read_csv(here("Final project/paint_project_train_data.csv"))
+```
+```{r}
+df_orig %>% glimpse(show_col_types = FALSE)
+```
+
+```{r}
+df <- df_orig %>%
+  mutate(y = boot::logit( (response - 0) / (100 - 0) ),
+         outcome = ifelse(outcome == 1, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c('event', 'non_event'))) %>% 
+  select(R, G, B, Lightness, Saturation, Hue, y, outcome)
+```
+
+## 2.1 The inputs
+
+```{r}
+df %>% group_by(Lightness) %>% summarise(count=n())
+```
+
+```{r}
+df %>%
+  ggplot(mapping = aes(x = Lightness)) +
+  geom_bar() +
+  facet_wrap(~ outcome)
+```
+```{r}
+df %>% group_by(Saturation) %>% summarise(count=n())
+```
+
+```{r}
+df %>%
+  ggplot(mapping = aes(x = Saturation)) +
+  geom_bar() +
+  facet_wrap(~ outcome)
+```
+
+### 2.1.1 The RGB Data
+
+Intuitively, we view the data distribution as a histogram:
+
+```{r}
+df_RGB <- df %>% select(R, G, B, y, outcome)
+
+df_RGB_long <- df_RGB %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(R, G, B))
+
+df_RGB_long %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 30) +
+  scale_x_continuous(breaks = round(seq(0, 255, by = 51), 1)) +
+  facet_wrap(~ name)
+```
+
+Or, as a density distribution:
+```{r}
+df_RGB_long %>%
+  ggplot(mapping = aes(x = value, y = name)) +
+  stat_density_ridges(geom = "density_ridges_gradient", calc_ecdf = TRUE, 
+                      quantiles = 4, quantile_lines = TRUE, 
+                      scale = 1.5) +
+  scale_x_continuous(breaks = round(seq(0, 255, by = 15), 1))
+```
+
+When viewed as a whole, the RGB data does not reveal any significant differences. The data show a long-tailed distribution far from a typical Gaussian distribution, and leaning toward the higher part. To further the discussion, we separate the data to view the distribution based on different outcomes:
+
+```{r}
+df_RGB_long %>%
+  ggplot(mapping = aes(x = value, y = name)) +
+  stat_density_ridges(geom = "density_ridges_gradient", calc_ecdf = TRUE, 
+                      quantiles = 4, quantile_lines = TRUE, 
+                      scale = 1.5) +
+  scale_x_continuous(breaks = round(seq(0, 255, by = 15), 1)) +
+  facet_wrap(~ outcome)
+```
+
+Further, on the RGB data according to different categorical inputs. For Lightness:
+
+```{r}
+df %>% select(R, G, B, Lightness) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(R, G, B)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(mapping = aes(fill = Lightness), alpha = 0.5) +
+  facet_wrap(~ name)
+```
+
+Similarly, for Saturation:
+```{r}
+df %>% select(R, G, B, Saturation) %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(R, G, B)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(mapping = aes(fill = Saturation), alpha = 0.5) +
+  facet_wrap(~ name)
+```
+
+As shown here, the distribution of RGB data is highly dependent on Lightness. Saturation has some influence on the distribution, but is not significant.
+
+Here, we can see that the distribution for the RGB data is clearly different based on the outcome.
+
+Also, we show the correlation matrix between the RGB values:
+
+```{r}
+df_RGB %>% select(R, G, B) %>% cor() %>% corrplot::corrplot(method = "number")
+```
+The RGB data are highly correlated. Now consider the RGB data and the Hue (H) data:
+```{r}
+df %>% select(R, G, B, Hue) %>% cor() %>% corrplot::corrplot(method = "number")
+
+```
+### 2.1.2 The HSL Data
+
+Same as in 2.1, we view the HSL data:
+```{r}
+df_HSL <- df %>%
+  select(Hue, Saturation, Lightness, y, outcome)
+```
+
+First, the relationship between Saturation (S) and Hue (H):
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Saturation, y = Hue)) +
+  geom_boxplot()
+```
+Similarly, the relationship between Lightness (L) and Hue (H):
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Saturation, y = Hue)) +
+  geom_boxplot()
+```
+
+And finally, on the combined influence of Saturation (S) and Lightness (L) on Hue (H):
+```{r}
+df_HSL %>%
+  group_by(Saturation, Lightness) %>%
+  summarise_at(vars(Hue), list(H_mean = mean)) %>%
+  ggplot(mapping = aes(x = Saturation, y = Lightness, fill = H_mean)) +
+  geom_tile() +
+  geom_text(mapping = aes(label = round(H_mean, digits = 2)), color = "white") +
+  scale_fill_viridis_c() +
+  coord_fixed(ratio = 1)
+```
+Here, we can easily show that the distribution of Hue (H) is largely affected by the combined influence of Saturation (S) and Lightness (L). We also visualize the distribution of Hue (H) with a histogram and a probability distribution:
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue)) +
+  geom_histogram(bins = 10) +
+  facet_wrap(~ Lightness*Saturation, nrow = 7, scales = "free_y")
+```
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue)) +
+  geom_density(fill = "gray", alpha = 0.5) +
+  facet_wrap(~ Lightness*Saturation, nrow = 7, scales = "free_y")
+```
+As we can see, the distribution is far from Gaussian.
+
+## 2.2 The continuous output
+We first present some basic insights on the continuous output. Here, we plot its distribution:
+
+```{r}
+df %>%
+  ggplot(mapping = aes(x = y)) +
+  geom_histogram(bins = 50)
+```
+### 2.2.1 The RGB Data
+Similarly, we plot the relationship for RGB separately:
+
+```{r}
+df_RGB_long %>%
+  ggplot(mapping = aes(x = value, y = y, color = outcome)) +
+  geom_point(alpha = 0.5) +
+  scale_x_continuous(breaks = round(seq(0, 255, by = 51), 1)) +
+  facet_wrap(~ name)
+```
+We find that there is a clear trend between the logit-transformed output y and the RGB data: the larger the RGB values are, the larger the y is. Though, we have not discussed the joined influence of RGB data on the output, since the high correlation, the relationship can be unclear.
+
+### 2.2.2 The HSL Data
+
+We first visualize the relationship between Hue (H) and y:
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue, y = y, color = outcome)) +
+  geom_point(alpha = 0.5)
+```
+It is clear that there is no correlation between the input and the output when viewed alone. Thus, we view the relationship between Hue (H) and y with different Saturation (S) and Lightness (L):
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue, y = y, color = outcome)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~ Lightness*Saturation, nrow = 7, scales = "free_y")
+```
+It is therefore clear that the relationship between Hue (H) and y is highly dependent on Saturation (S) and Lightness (L). The relationship can be of non-linear nature, we guess a spline with 2 degrees of freedom.
+
+## 2.3 The Binary Output
+
+We first present some basic insights on the continuous output. Here, we plot its distribution:
+
+```{r}
+df %>%
+  ggplot(mapping = aes(x = outcome)) +
+  geom_histogram(stat = "count")
+```
+We show that it is clearly imbalanced.
+
+We can already see in Section 2.2 that the binary output outcome is highly dependent on the categorical inputs, but we attempt a more focused analysis of the binary output.
+
+### 2.3.1 The RGB Data
+
+For the RGB data, we plot the relationship between the RGB data and the binary output:
+
+```{r}
+df_RGB_long %>%
+  ggplot(mapping = aes(x = value, y = as.factor(outcome))) +
+  geom_point(alpha = 0.5) +
+  scale_x_continuous(breaks = round(seq(0, 255, by = 51), 1)) +
+  facet_wrap(~ name)
+```
+
+The data is clearly not linearly separable.
+
+### 2.3.2 The HSL Data
+
+Similarly, we plot the relationship between Hue (H) and outcome:
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue, y = as.factor(outcome))) +
+  geom_point(alpha = 0.5)
+```
+
+And with different Saturation (S) and Lightness (L):
+
+```{r}
+df_HSL %>%
+  ggplot(mapping = aes(x = Hue, y = as.factor(outcome))) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~ Lightness*Saturation, nrow = 7, scales = "free_y")
+```
+
+It is clear that the binary outcome is highly dependent on categorical inputs. Also, we note that in several cases, the data is linearly separable, which could be problematic when training classification models.
+
+# 3. Splitting and Saving Data
+
+In this section, we split and save the data for training and validating the models for regression and classification tasks. We select an 80-20 split of the data:
+
+```{r}
+set.seed(0)
+train_id <- sample(1:nrow(df_orig), size = floor(0.9 * nrow(df_orig)))
+df_train <- df_orig %>% slice(train_id)
+df_test <- df_orig %>% slice(-train_id)
+
+```
+
+And we save both data separately:
+
+```{r}
+df_train %>% write.csv(here("Final project/Submit/paint_train_split.csv"))
+df_train %>% write.csv(here("Final project/Submit/paint_test_split.csv"))
+```
+
+
